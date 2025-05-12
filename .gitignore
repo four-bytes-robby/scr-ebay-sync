@@ -1,0 +1,56 @@
+# PhpStorm Project Files
+.idea/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Vendor directory
+/vendor/
+
+# Logs
+/logs/*
+!/logs/.gitkeep
+
+# Cache files
+/var/cache/*
+/var/cache/doctrine_queries/*
+!/var/cache/.gitkeep
+!/var/cache/doctrine_queries/.gitkeep
+
+# eBay authentication files
+/var/ebay_tokens_*.json
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*.bak
+*.sql
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Composer files
+composer.phar
+
+# Node modules (if used for frontend)
+/node_modules/
+
+# Test coverage
+/coverage/
+
+# Public uploads
+/public/uploads/*
+!/public/uploads/.gitkeep
+
+# Custom files
+*.custom.*

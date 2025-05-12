@@ -1,0 +1,33 @@
+{
+    "name": "scr/ebay-sync",
+    "description": "Supreme Chaos Records eBay Synchronization",
+    "type": "project",
+    "require": {
+        "php": "^8.2",
+        "doctrine/orm": "^3.0",
+        "doctrine/dbal": "^4.0",
+        "doctrine/persistence": "^4.0",
+        "symfony/cache": "^7.0",
+        "monolog/monolog": "^3.0",
+        "symfony/dotenv": "^7.0",
+        "guzzlehttp/guzzle": "^7.0",
+        "vlucas/phpdotenv": "^5.0",
+        "ext-pdo": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Four\\ScrEbaySync\\": "src/"
+        }
+    },
+    "scripts": {
+        "sync": "php cli/sync.php"
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "platform": {
+            "php": "8.2"
+        }
+    }
+}
