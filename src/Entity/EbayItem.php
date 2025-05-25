@@ -31,6 +31,20 @@ class EbayItem
     #[ORM\Column(type: "datetime", nullable: true)]
     private ?\DateTime $deleted = null;
 
+    /**
+     * OneToOne nullable relationship to ScrItem
+     * Left Join: EbayItem.item_id -> ScrItem.id
+     */
+    #[ORM\OneToOne(targetEntity: ScrItem::class, inversedBy: "ebayItem")]
+    #[ORM\JoinColumn(name: "item_id", referencedColumnName: "id", nullable: true)]
+    private ?ScrItem $scrItem = null;
+
+    public function __construct()
+    {
+        // Clean defaults - deleted should be nullable in DB
+        $this->deleted = null;
+    }
+
     // Getter und Setter Methoden
     public function getItemId(): string
     {
@@ -106,6 +120,17 @@ class EbayItem
     public function setDeleted(?\DateTime $deleted): self
     {
         $this->deleted = $deleted;
+        return $this;
+    }
+
+    public function getScrItem(): ?ScrItem
+    {
+        return $this->scrItem;
+    }
+
+    public function setScrItem(?ScrItem $scrItem): self
+    {
+        $this->scrItem = $scrItem;
         return $this;
     }
 }

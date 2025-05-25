@@ -2,10 +2,11 @@
 // src/Services/SyncService.php
 namespace Four\ScrEbaySync\Services;
 
+use Exception;
+use DateTime;
 use Four\ScrEbaySync\Api\eBay\Inventory;
 use Four\ScrEbaySync\Api\eBay\Fulfillment;
 use Doctrine\ORM\EntityManagerInterface;
-use Four\ScrEbaySync\Entity\EbayItem;
 use Four\ScrEbaySync\Entity\ScrItem;
 use Monolog\Logger;
 
@@ -88,7 +89,7 @@ class SyncService
         
         // Process orders
         if ($importOrders) {
-            $fromDate = new \DateTime();
+            $fromDate = new DateTime();
             $fromDate->modify("-10 days");
             $results['importedOrders'] = $this->orderService->importOrders($fromDate);
         }
@@ -113,10 +114,9 @@ class SyncService
         
         // Get the repositories
         $scrItemRepo = $this->entityManager->getRepository(ScrItem::class);
-        $ebayItemRepo = $this->entityManager->getRepository(EbayItem::class);
-        
+
         // Find items eligible for listing (items with quantity > 0 that aren't listed on eBay)
-        $items = $scrItemRepo->findEligibleItemsForEbay();
+        $items = $scrItemRepo->findNewItems();
         
         if (!$items) {
             $this->logger->info("No new items found to list on eBay");
@@ -128,20 +128,13 @@ class SyncService
         $addCount = 0;
         foreach ($items as $item) {
             try {
-                // Check if already in eBay items
-                $ebayItem = $ebayItemRepo->findOneBy(['item_id' => $item->getId()]);
-                if ($ebayItem && !$ebayItem->getDeleted()) {
-                    $this->logger->debug("Item {$item->getId()} is already listed on eBay, skipping");
-                    continue; // Skip if already listed
-                }
-                
                 // Create eBay listing
                 $listingId = $this->inventoryService->createListing($item);
                 
                 if ($listingId) {
-                    $addCount++;
+                    $addCount += 1;
                 }
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->logger->error(sprintf(
                     "Error adding item %d to eBay: %s", 
                     $item->getId(), 
@@ -150,7 +143,7 @@ class SyncService
             }
         }
         
-        $this->logger->info("Added {$addCount} new items to eBay");
+        $this->logger->info("Added $addCount new items to eBay");
         return $addCount;
     }
 
@@ -164,47 +157,38 @@ class SyncService
         $this->logger->info("Finding items to update on eBay");
         
         // Get the repositories
-        $ebayItemRepo = $this->entityManager->getRepository(EbayItem::class);
         $scrItemRepo = $this->entityManager->getRepository(ScrItem::class);
         
         // Find eBay items that need updates
-        $ebayItems = $ebayItemRepo->findItemsNeedingUpdate();
+        $updateItems = $scrItemRepo->findUpdatedItems();
         
-        if (!$ebayItems) {
+        if (!$updateItems) {
             $this->logger->info("No items found needing updates on eBay");
             return 0;
         }
         
-        $this->logger->info(sprintf("Found %d items to update on eBay", count($ebayItems)));
+        $this->logger->info(sprintf("Found %d items to update on eBay", count($updateItems)));
         
         $updateCount = 0;
-        foreach ($ebayItems as $ebayItem) {
+        foreach ($updateItems as $updateItem) {
             try {
-                // Get the corresponding SCR item
-                $scrItem = $scrItemRepo->find($ebayItem->getItemId());
-                
-                if (!$scrItem) {
-                    $this->logger->warning("SCR item {$ebayItem->getItemId()} not found, cannot update eBay listing");
-                    continue;
-                }
-                
                 // Update the listing
-                $success = $this->inventoryService->updateListing($scrItem, $ebayItem);
+                $success = $this->inventoryService->updateListing($updateItem);
                 
                 if ($success) {
                     $updateCount++;
-                    $this->logger->info("Successfully updated eBay listing {$ebayItem->getEbayItemId()} for item {$scrItem->getId()}");
+                    $this->logger->info("Successfully updated eBay listing {$updateItem->getEbayItemId()}");
                 }
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->logger->error(sprintf(
-                    "Error updating eBay item %s: %s", 
-                    $ebayItem->getEbayItemId(), 
+                    "Error updating eBay item %s: %s",
+                    $updateItem->getEbayItemId(),
                     $e->getMessage()
                 ));
             }
         }
         
-        $this->logger->info("Updated {$updateCount} items on eBay");
+        $this->logger->info("Updated " . $updateCount . " items on eBay");
         return $updateCount;
     }
 
@@ -218,47 +202,38 @@ class SyncService
         $this->logger->info("Finding items to update quantities on eBay");
         
         // Get the repositories
-        $ebayItemRepo = $this->entityManager->getRepository(EbayItem::class);
         $scrItemRepo = $this->entityManager->getRepository(ScrItem::class);
         
         // Find eBay items that need quantity updates
-        $ebayItems = $ebayItemRepo->findItemsNeedingQuantityUpdate();
+        $quantityChangedItems = $scrItemRepo->findItemsWithChangedQuantities();
         
-        if (!$ebayItems) {
+        if (!$quantityChangedItems) {
             $this->logger->info("No items found needing quantity updates on eBay");
             return 0;
         }
         
-        $this->logger->info(sprintf("Found %d items to update quantities on eBay", count($ebayItems)));
+        $this->logger->info(sprintf("Found %d items to update quantities on eBay", count($quantityChangedItems)));
         
         $updateCount = 0;
-        foreach ($ebayItems as $ebayItem) {
+        foreach ($quantityChangedItems as $item) {
             try {
-                // Get the corresponding SCR item
-                $scrItem = $scrItemRepo->find($ebayItem->getItemId());
-                
-                if (!$scrItem) {
-                    $this->logger->warning("SCR item {$ebayItem->getItemId()} not found, cannot update quantity");
-                    continue;
-                }
-                
                 // Update the quantity
-                $success = $this->inventoryService->updateQuantity($scrItem, $ebayItem);
+                $success = $this->inventoryService->updateQuantity($item);
                 
                 if ($success) {
                     $updateCount++;
-                    $this->logger->info("Successfully updated quantity for eBay listing {$ebayItem->getEbayItemId()}");
+                    $this->logger->info("Successfully updated quantity for eBay listing {$item->getEbayItemId()}");
                 }
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->logger->error(sprintf(
                     "Error updating quantity for eBay item %s: %s", 
-                    $ebayItem->getEbayItemId(), 
+                    $item->getEbayItemId(),
                     $e->getMessage()
                 ));
             }
         }
         
-        $this->logger->info("Updated quantities for {$updateCount} items on eBay");
+        $this->logger->info("Updated quantities for " . $updateCount . " items on eBay");
         return $updateCount;
     }
 
@@ -272,49 +247,48 @@ class SyncService
         $this->logger->info("Finding listings to end on eBay");
         
         // Get the repositories
-        $ebayItemRepo = $this->entityManager->getRepository(EbayItem::class);
         $scrItemRepo = $this->entityManager->getRepository(ScrItem::class);
         
         // Find eBay items that need to be ended
-        $ebayItems = $ebayItemRepo->findActiveListingsForUnavailableItems();
+        $deleteItems = $scrItemRepo->findUnavailableItems();
         
-        if (!$ebayItems) {
+        if (!$deleteItems) {
             $this->logger->info("No listings found to end on eBay");
             return 0;
         }
         
-        $this->logger->info(sprintf("Found %d listings to end on eBay", count($ebayItems)));
+        $this->logger->info(sprintf("Found %d listings to end on eBay", count($deleteItems)));
         
         $endCount = 0;
-        foreach ($ebayItems as $ebayItem) {
+        foreach ($deleteItems as $item) {
             try {
                 // End the listing
-                $success = $this->inventoryService->endListing($ebayItem);
+                $success = $this->inventoryService->endListing($item);
                 
                 if ($success) {
                     $endCount++;
-                    $this->logger->info("Successfully ended eBay listing {$ebayItem->getEbayItemId()}");
+                    $this->logger->info("Successfully ended eBay listing {$item->getEbayItemId()}");
                 }
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->logger->error(sprintf(
                     "Error ending eBay listing %s: %s", 
-                    $ebayItem->getEbayItemId(), 
+                    $item->getEbayItemId(),
                     $e->getMessage()
                 ));
             }
         }
         
-        $this->logger->info("Ended {$endCount} listings on eBay");
+        $this->logger->info("Ended " . $endCount . " listings on eBay");
         return $endCount;
     }
 
     /**
      * Import orders from eBay
      *
-     * @param \DateTime $fromDate Import orders from this date
+     * @param DateTime $fromDate Import orders from this date
      * @return int Number of imported orders
      */
-    public function importOrders(\DateTime $fromDate): int
+    public function importOrders(DateTime $fromDate): int
     {
         return $this->orderService->importOrders($fromDate);
     }

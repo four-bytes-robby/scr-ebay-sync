@@ -91,6 +91,14 @@ class ScrItem
     #[ORM\Column(type: "datetime")]
     private \DateTime $updated;
 
+    /**
+     * OneToOne nullable inverse relationship to EbayItem
+     * Mapped by the 'scrItem' property in EbayItem
+     * The inverse side does NOT need JoinColumn - it's handled by the owning side
+     */
+    #[ORM\OneToOne(targetEntity: EbayItem::class, mappedBy: "scrItem")]
+    private ?EbayItem $ebayItem = null;
+
     // Getter und Setter Methoden
     public function getId(): string
     {
@@ -387,5 +395,21 @@ class ScrItem
     {
         $this->updated = $updated;
         return $this;
+    }
+
+    public function getEbayItem(): ?EbayItem
+    {
+        return $this->ebayItem;
+    }
+
+    public function setEbayItem(?EbayItem $ebayItem): self
+    {
+        $this->ebayItem = $ebayItem;
+        return $this;
+    }
+
+    public function getEbayItemId() : ?string
+    {
+        return $this->ebayItem?->getEbayItemId();
     }
 }

@@ -38,115 +38,68 @@ class EbayItemRepository extends EntityRepository
             ->getQuery()
             ->getOneOrNullResult();
     }
-    
+
     /**
-     * Find items that need inventory update
+     * Find all eBay items with their corresponding SCR items using OneToOne LEFT JOIN
+     * This utilizes the entity-level OneToOne relationship for clean queries
      *
-     * @return array Items needing inventory update
+     * @return array Array of EbayItem entities with loaded ScrItem relationships
      */
-    public function findNeedingInventoryUpdate(): array
+    public function findAllWithScrItems(): array
     {
-        $qb = $this->getEntityManager()->createQueryBuilder();
-        $qb->select('e')
-            ->from(EbayItem::class, 'e')
-            ->join('Four\ScrEbaySync\Entity\ScrItem', 'i', 'WITH', 'e.item_id = i.id')
-            ->where('e.quantity > 0')
-            ->andWhere('e.deleted IS NULL')
-            ->andWhere('e.quantity != i.quantity OR e.price != i.price');
-            
-        return $qb->getQuery()->getResult();
-    }
-    
-    /**
-     * Find items that need content update
-     *
-     * @return array Items needing content update
-     */
-    public function findNeedingContentUpdate(): array
-    {
-        $qb = $this->getEntityManager()->createQueryBuilder();
-        $qb->select('e')
-            ->from(EbayItem::class, 'e')
-            ->join('Four\ScrEbaySync\Entity\ScrItem', 'i', 'WITH', 'e.item_id = i.id')
-            ->where('e.quantity > 0')
-            ->andWhere('e.deleted IS NULL')
-            ->andWhere('i.updated > e.updated');
-            
-        return $qb->getQuery()->getResult();
-    }
-    
-    /**
-     * Find items that should be ended
-     *
-     * @return array Items to end
-     */
-    public function findItemsToDelete(): array
-    {
-        // Get IDs of eBay available items
-        $availableItemsQb = $this->getEntityManager()->createQueryBuilder();
-        $availableItemsQb->select('i.id')
-            ->from('Four\ScrEbaySync\Entity\ScrItem', 'i')
-            ->where('i.ebay = 1')
-            ->andWhere('i.price > 0')
-            ->andWhere('i.quantity > 0')
-            ->andWhere('i.available_from <= CURRENT_TIMESTAMP()')
-            ->andWhere('i.available_until IS NULL OR i.available_until >= CURRENT_TIMESTAMP()');
-            
-        $availableItemIds = $availableItemsQb->getQuery()->getResult();
-        $availableItemIds = array_column($availableItemIds, 'id');
-        
-        // Get eBay items that are active but should be ended
-        $qb = $this->createQueryBuilder('e');
-        $qb->where('e.quantity > 0')
-            ->andWhere('e.deleted IS NULL')
-            ->andWhere($qb->expr()->notIn('e.item_id', ':availableItemIds'))
-            ->setParameter('availableItemIds', $availableItemIds);
-            
-        return $qb->getQuery()->getResult();
-    }
-    
-    /**
-     * Find items that need to be updated on eBay
-     * 
-     * @return array Items needing update
-     */
-    public function findItemsNeedingUpdate(): array
-    {
-        return $this->findNeedingContentUpdate();
-    }
-    
-    /**
-     * Find items that need quantity updates on eBay
-     * 
-     * @return array Items needing quantity update
-     */
-    public function findItemsNeedingQuantityUpdate(): array
-    {
-        $qb = $this->getEntityManager()->createQueryBuilder();
-        $qb->select('e')
-            ->from(EbayItem::class, 'e')
-            ->join('Four\ScrEbaySync\Entity\ScrItem', 'i', 'WITH', 'e.item_id = i.id')
+        return $this->createQueryBuilder('e')
+            ->leftJoin('e.scrItem', 's')
+            ->addSelect('s')
             ->where('e.deleted IS NULL')
-            ->andWhere('(CASE WHEN i.quantity > 3 THEN 3 ELSE i.quantity END) != e.quantity');
-            
-        return $qb->getQuery()->getResult();
+            ->getQuery()
+            ->getResult();
     }
-    
+
     /**
-     * Find active listings for unavailable items
-     * 
-     * @return array Active listings for unavailable items
+     * Find eBay items that have corresponding SCR items
+     *
+     * @return array EbayItem entities with non-null ScrItem relationships
      */
-    public function findActiveListingsForUnavailableItems(): array
+    public function findWithValidScrItems(): array
     {
-        $qb = $this->getEntityManager()->createQueryBuilder();
-        $qb->select('e')
-            ->from(EbayItem::class, 'e')
-            ->leftJoin('Four\ScrEbaySync\Entity\ScrItem', 'i', 'WITH', 'e.item_id = i.id')
+        return $this->createQueryBuilder('e')
+            ->leftJoin('e.scrItem', 's')
+            ->addSelect('s')
             ->where('e.deleted IS NULL')
-            ->andWhere('e.quantity > 0')
-            ->andWhere('(i.id IS NULL OR i.quantity <= 0 OR i.ebay = 0 OR i.price <= 0 OR i.available_until < CURRENT_TIMESTAMP())');
-            
-        return $qb->getQuery()->getResult();
+            ->andWhere('s.id IS NOT NULL')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Find eBay items without corresponding SCR items (orphaned)
+     *
+     * @return array EbayItem entities with null ScrItem relationships
+     */
+    public function findOrphanedEbayItems(): array
+    {
+        return $this->createQueryBuilder('e')
+            ->leftJoin('e.scrItem', 's')
+            ->where('e.deleted IS NULL')
+            ->andWhere('s.id IS NULL')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Advanced query: Find eBay items with quantity mismatch compared to SCR items
+     *
+     * @return array EbayItem entities where quantities don't match
+     */
+    public function findQuantityMismatches(): array
+    {
+        return $this->createQueryBuilder('e')
+            ->leftJoin('e.scrItem', 's')
+            ->addSelect('s')
+            ->where('e.deleted IS NULL')
+            ->andWhere('s.id IS NOT NULL')
+            ->andWhere('e.quantity != s.quantity')
+            ->getQuery()
+            ->getResult();
     }
 }

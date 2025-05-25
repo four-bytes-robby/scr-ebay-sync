@@ -1,7 +1,8 @@
-<?php
-// src/Services/EbayInventoryService.php
+<?php declare(strict_types=1);
+
 namespace Four\ScrEbaySync\Services;
 
+use DateTime;
 use Four\ScrEbaySync\Entity\ScrItem;
 use Four\ScrEbaySync\Entity\EbayItem;
 use Four\ScrEbaySync\Api\eBay\Inventory;
@@ -102,11 +103,11 @@ class EbayInventoryService
      * Update an existing eBay listing
      *
      * @param ScrItem $scrItem The item to update
-     * @param EbayItem $ebayItem The corresponding eBay item
      * @return bool Success status
      */
-    public function updateListing(ScrItem $scrItem, EbayItem $ebayItem): bool
+    public function updateListing(ScrItem $scrItem): bool
     {
+        $ebayItem = $scrItem->getEbayItem();
         $this->logger->info("Updating eBay listing {$ebayItem->getEbayItemId()} for item {$scrItem->getId()}");
         
         try {
@@ -131,7 +132,7 @@ class EbayInventoryService
             // Get the offer ID
             $offerResponse = $this->inventoryApi->getOffers($scrItem->getId());
             
-            if (!isset($offerResponse['offers']) || empty($offerResponse['offers'])) {
+            if (empty($offerResponse['offers'])) {
                 $this->logger->error("No offers found for item {$scrItem->getId()}");
                 return false;
             }
@@ -153,7 +154,7 @@ class EbayInventoryService
                 // Update the eBay item in our database
                 $ebayItem->setQuantity($itemConverter->getQuantity());
                 $ebayItem->setPrice((string)$itemConverter->getPrice());
-                $ebayItem->setUpdated(new \DateTime());
+                $ebayItem->setUpdated(new DateTime());
                 $this->entityManager->persist($ebayItem);
                 $this->entityManager->flush();
                 
@@ -173,13 +174,14 @@ class EbayInventoryService
      * Update inventory quantity for an existing listing
      *
      * @param ScrItem $scrItem The item to update
-     * @param EbayItem $ebayItem The corresponding eBay item
      * @return bool Success status
      */
-    public function updateQuantity(ScrItem $scrItem, EbayItem $ebayItem): bool
+    public function updateQuantity(ScrItem $scrItem): bool
     {
         $quantity = min($scrItem->getQuantity(), 3); // Max 3
-        
+
+        $ebayItem = $scrItem->getEbayItem();
+
         $this->logger->info("Updating quantity to {$quantity} for eBay listing {$ebayItem->getEbayItemId()}");
         
         try {
@@ -188,7 +190,7 @@ class EbayInventoryService
             
             // Update the eBay item in our database
             $ebayItem->setQuantity($quantity);
-            $ebayItem->setUpdated(new \DateTime());
+            $ebayItem->setUpdated(new DateTime());
             $this->entityManager->persist($ebayItem);
             $this->entityManager->flush();
             
@@ -198,15 +200,16 @@ class EbayInventoryService
             return false;
         }
     }
-    
+
     /**
      * End an eBay listing
      *
-     * @param EbayItem $ebayItem The eBay item to end
+     * @param ScrItem $item The eBay item to end
      * @return bool Success status
      */
-    public function endListing(EbayItem $ebayItem): bool
+    public function endListing(ScrItem $item): bool
     {
+        $ebayItem = $item->getEbayItem();
         $this->logger->info("Ending eBay listing {$ebayItem->getEbayItemId()}");
         
         try {
@@ -225,7 +228,7 @@ class EbayInventoryService
             
             // Update the eBay item in our database
             $ebayItem->setQuantity(-1);
-            $ebayItem->setDeleted(new \DateTime());
+            $ebayItem->setDeleted(new DateTime());
             $this->entityManager->persist($ebayItem);
             $this->entityManager->flush();
             
@@ -247,7 +250,7 @@ class EbayInventoryService
      */
     private function saveEbayItem(ScrItem $scrItem, string $ebayItemId, int $quantity, float $price): EbayItem
     {
-        $now = new \DateTime();
+        $now = new DateTime();
         
         // Check if the item already exists
         $ebayItemRepo = $this->entityManager->getRepository(EbayItem::class);

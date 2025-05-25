@@ -5,11 +5,17 @@ namespace Four\ScrEbaySync\Services\EbayOrder;
 use Four\ScrEbaySync\Api\eBay\Fulfillment;
 use Four\ScrEbaySync\Entity\ScrInvoice;
 use Four\ScrEbaySync\Entity\EbayTransaction;
+use Four\ScrEbaySync\Services\EbayOrder\CarrierMapping;
 use Doctrine\ORM\EntityManagerInterface;
 use Monolog\Logger;
 
 /**
  * Service for updating eBay order statuses
+ * 
+ * Handles synchronization of order status from SCR invoices to eBay:
+ * - Payment status (based on SCR invoice paydat)
+ * - Shipping status (based on SCR invoice dispatchdat + tracking)
+ * - Cancellation status (based on SCR invoice closed flag)
  */
 class OrderStatusService
 {
@@ -39,7 +45,7 @@ class OrderStatusService
      */
     public function updateOrderStatus(): int
     {
-        $this->logger->info("Updating eBay order statuses");
+        $this->logger->info("Starting eBay order status updates");
         
         try {
             // Update orders marked as paid
@@ -51,7 +57,13 @@ class OrderStatusService
             // Update orders marked as canceled
             $canceledCount = $this->updateCanceledOrders();
             
-            $this->logger->info("Updated order statuses: {$paidCount} paid, {$shippedCount} shipped, {$canceledCount} canceled");
+            $this->logger->info("Completed eBay order status updates", [
+                'paid_orders' => $paidCount,
+                'shipped_orders' => $shippedCount,
+                'canceled_orders' => $canceledCount,
+                'total_updated' => $paidCount + $shippedCount + $canceledCount
+            ]);
+            
             return $paidCount + $shippedCount + $canceledCount;
         } catch (\Exception $e) {
             $this->logger->error("Exception updating order statuses: " . $e->getMessage());
@@ -61,12 +73,13 @@ class OrderStatusService
     
     /**
      * Update orders marked as paid
+     * 
+     * Finds transactions that are not marked as paid but have invoices with payment dates
      *
      * @return int Number of updated orders
      */
     private function updatePaidOrders(): int
     {
-        // Get transactions that are not marked as paid but have invoices with payment dates
         $qb = $this->entityManager->createQueryBuilder();
         $transactions = $qb->select('t')
             ->from(EbayTransaction::class, 't')
@@ -89,30 +102,45 @@ class OrderStatusService
                 $this->entityManager->persist($transaction);
                 
                 $count++;
+                
+                $this->logger->info("Marked order as paid", [
+                    'ebay_order_id' => $transaction->getEbayOrderId(),
+                    'invoice_id' => $transaction->getInvoiceId()
+                ]);
+                
             } catch (\Exception $e) {
-                $this->logger->error("Error marking order {$transaction->getEbayOrderId()} as paid: " . $e->getMessage());
+                $this->logger->error("Error marking order as paid", [
+                    'ebay_order_id' => $transaction->getEbayOrderId(),
+                    'error' => $e->getMessage()
+                ]);
             }
         }
         
-        $this->entityManager->flush();
+        if ($count > 0) {
+            $this->entityManager->flush();
+        }
         
         return $count;
     }
     
     /**
      * Update orders marked as shipped
+     * 
+     * Finds transactions that need shipping updates based on SCR invoice dispatch dates.
+     * Uses advanced carrier mapping from shipper field and tracking number patterns.
      *
      * @return int Number of updated orders
      */
     private function updateShippedOrders(): int
     {
-        // Get transactions that are not marked as shipped but have invoices with dispatch dates
         $qb = $this->entityManager->createQueryBuilder();
         $transactions = $qb->select('t')
             ->from(EbayTransaction::class, 't')
             ->join(ScrInvoice::class, 'i', 'WITH', 't.invoice_id = i.id')
             ->where('t.shipped = 0 OR t.ebayTracking != i.tracking')
             ->andWhere('i.dispatchdat IS NOT NULL')
+            ->andWhere('i.tracking IS NOT NULL')
+            ->andWhere("i.tracking != ''")
             ->getQuery()
             ->getResult();
             
@@ -124,74 +152,91 @@ class OrderStatusService
                     ->find($transaction->getInvoiceId());
                 
                 if (!$invoice) {
+                    $this->logger->warning("Invoice not found for transaction", [
+                        'transaction_id' => $transaction->getId(),
+                        'invoice_id' => $transaction->getInvoiceId()
+                    ]);
                     continue;
                 }
                 
-                // Skip if no tracking number
-                if (empty($invoice->getTracking())) {
+                $trackingNumber = trim($invoice->getTracking());
+                if (empty($trackingNumber)) {
+                    $this->logger->debug("No tracking number for invoice", [
+                        'invoice_id' => $invoice->getId(),
+                        'transaction_id' => $transaction->getId()
+                    ]);
                     continue;
                 }
                 
-                // Determine carrier
-                $carrier = $invoice->getShipper();
+                // Primary: Use shipper field from SCR invoice with advanced mapping
+                $ebayCarrier = CarrierMapping::mapShipperToCarrier($invoice->getShipper());
                 
-                if (empty($carrier)) {
-                    // Auto-detect carrier from tracking number format
-                    $trackingNumber = $invoice->getTracking();
-                    $length = strlen($trackingNumber);
+                // Fallback: Auto-detect from tracking number if shipper mapping returned OTHER
+                if ($ebayCarrier === CarrierMapping::EBAY_CARRIERS['OTHER'] && empty($invoice->getShipper())) {
+                    $ebayCarrier = CarrierMapping::detectCarrierFromTracking($trackingNumber);
                     
-                    switch ($length) {
-                        case 14:
-                            $carrier = 'Hermes';
-                            break;
-                        case 13:
-                            $carrier = 'DeutschePost';
-                            break;
-                        case 18:
-                            $carrier = 'UPS';
-                            break;
-                        case 20:
-                            $carrier = 'DHL';
-                            break;
-                        default:
-                            $carrier= 'Spring GDS';
-                            break;
-                    }
+                    $this->logger->debug("Used tracking number pattern detection", [
+                        'tracking_number' => $trackingNumber,
+                        'detected_carrier' => $ebayCarrier
+                    ]);
                 }
+                
+                $this->logger->info("Processing shipped order", [
+                    'ebay_order_id' => $transaction->getEbayOrderId(),
+                    'tracking_number' => $trackingNumber,
+                    'scr_shipper' => $invoice->getShipper(),
+                    'ebay_carrier' => $ebayCarrier,
+                    'dispatch_date' => $invoice->getDispatchdat()->format('Y-m-d H:i:s')
+                ]);
                 
                 // Mark as shipped on eBay
                 $this->fulfillmentApi->markAsShipped(
                     $transaction->getEbayOrderId(),
-                    $invoice->getTracking(),
-                    $carrier,
+                    $trackingNumber,
+                    $ebayCarrier,
                     $invoice->getDispatchdat()
                 );
                 
                 // Update transaction
                 $transaction->setShipped(1);
-                $transaction->setEbayTracking($invoice->getTracking());
+                $transaction->setEbayTracking($trackingNumber);
                 $transaction->setUpdated(new \DateTime());
                 $this->entityManager->persist($transaction);
                 
                 $count++;
+                
+                $this->logger->info("Successfully marked order as shipped", [
+                    'ebay_order_id' => $transaction->getEbayOrderId(),
+                    'tracking_number' => $trackingNumber,
+                    'carrier' => $ebayCarrier
+                ]);
+                
             } catch (\Exception $e) {
-                $this->logger->error("Error marking order {$transaction->getEbayOrderId()} as shipped: " . $e->getMessage());
+                $this->logger->error("Error marking order as shipped", [
+                    'ebay_order_id' => $transaction->getEbayOrderId(),
+                    'error' => $e->getMessage(),
+                    'tracking_number' => $invoice->getTracking() ?? 'N/A',
+                    'shipper' => $invoice->getShipper() ?? 'N/A'
+                ]);
             }
         }
         
-        $this->entityManager->flush();
+        if ($count > 0) {
+            $this->entityManager->flush();
+        }
         
         return $count;
     }
-    
+
     /**
      * Update orders marked as canceled
+     * 
+     * Finds transactions that should be canceled based on closed SCR invoices
      *
      * @return int Number of updated orders
      */
     private function updateCanceledOrders(): int
     {
-        // Get transactions that are not marked as canceled but have closed invoices
         $qb = $this->entityManager->createQueryBuilder();
         $transactions = $qb->select('t')
             ->from(EbayTransaction::class, 't')
@@ -228,7 +273,19 @@ class OrderStatusService
                             $transaction->getEbayOrderId(),
                             'OUT_OF_STOCK'
                         );
+                        
+                        $this->logger->info("Canceled order on eBay", [
+                            'ebay_order_id' => $transaction->getEbayOrderId(),
+                            'reason' => 'OUT_OF_STOCK',
+                            'days_old' => $daysDifference
+                        ]);
                     }
+                } else {
+                    $this->logger->debug("Order too old for eBay cancellation", [
+                        'ebay_order_id' => $transaction->getEbayOrderId(),
+                        'days_old' => $daysDifference,
+                        'max_days' => 30
+                    ]);
                 }
                 
                 // Update transaction status locally regardless of eBay status
@@ -237,12 +294,18 @@ class OrderStatusService
                 $this->entityManager->persist($transaction);
                 
                 $count++;
+                
             } catch (\Exception $e) {
-                $this->logger->error("Error canceling order {$transaction->getEbayOrderId()}: " . $e->getMessage());
+                $this->logger->error("Error canceling order", [
+                    'ebay_order_id' => $transaction->getEbayOrderId(),
+                    'error' => $e->getMessage()
+                ]);
             }
         }
         
-        $this->entityManager->flush();
+        if ($count > 0) {
+            $this->entityManager->flush();
+        }
         
         return $count;
     }

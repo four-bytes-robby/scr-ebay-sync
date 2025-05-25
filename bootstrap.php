@@ -2,6 +2,11 @@
 // bootstrap.php
 require_once __DIR__ . '/vendor/autoload.php';
 
+use Doctrine\DBAL\DriverManager;
+use Doctrine\ORM\Configuration;
+use Doctrine\ORM\EntityManager;
+use Doctrine\ORM\Mapping\Driver\AttributeDriver;
+use Doctrine\ORM\ORMSetup;
 use Symfony\Component\Dotenv\Dotenv;
 
 // Load .env file if it exists
@@ -20,7 +25,7 @@ $dirs = [
     __DIR__ . '/logs',
     __DIR__ . '/var',
     __DIR__ . '/var/cache',
-    __DIR__ . '/templates'
+    __DIR__ . '/var/cache/doctrine_queries'
 ];
 
 foreach ($dirs as $dir) {
@@ -87,3 +92,141 @@ if (!empty($missingExtensions)) {
     echo "Please install them and try again.\n";
     exit(1);
 }
+
+// === DOCTRINE ORM 3.x + DBAL 4.x SETUP ===
+
+try {
+    // Get database configuration from environment
+    // Priority: DATABASE_URL > individual DB_* variables
+    $databaseUrl = $_ENV['DATABASE_URL'] ?? null;
+    
+    if ($databaseUrl) {
+        // Parse DATABASE_URL (format: mysql://user:password@host:port/dbname)
+        $parsedUrl = parse_url($databaseUrl);
+        
+        if (!$parsedUrl) {
+            throw new \Exception('Invalid DATABASE_URL format');
+        }
+        
+        $dbParams = [
+            'driver' => 'pdo_mysql',
+            'host' => $parsedUrl['host'] ?? 'localhost',
+            'port' => $parsedUrl['port'] ?? 3306,
+            'dbname' => ltrim($parsedUrl['path'] ?? '', '/'),
+            'user' => $parsedUrl['user'] ?? 'root',
+            'password' => $parsedUrl['pass'] ?? '',
+            'charset' => 'utf8mb4',
+        ];
+        
+        // Handle different database drivers based on scheme
+        if (isset($parsedUrl['scheme'])) {
+            switch ($parsedUrl['scheme']) {
+                case 'mysql':
+                case 'mysqli':
+                    $dbParams['driver'] = 'pdo_mysql';
+                    break;
+                case 'postgresql':
+                case 'postgres':
+                    $dbParams['driver'] = 'pdo_pgsql';
+                    break;
+                case 'sqlite':
+                    $dbParams['driver'] = 'pdo_sqlite';
+                    $dbParams['path'] = $parsedUrl['path'];
+                    break;
+            }
+        }
+    } else {
+        // Fallback to individual environment variables
+        $dbParams = [
+            'driver' => 'pdo_mysql',
+            'host' => $_ENV['DB_HOST'] ?? 'localhost',
+            'port' => $_ENV['DB_PORT'] ?? 3306,
+            'dbname' => $_ENV['DB_NAME'] ?? 'scr_ebay_sync',
+            'user' => $_ENV['DB_USER'] ?? 'root',
+            'password' => $_ENV['DB_PASS'] ?? '',
+            'charset' => $_ENV['DB_CHARSET'] ?? 'utf8mb4',
+        ];
+    }
+
+    // Create Doctrine ORM configuration (ORM 3.x + DBAL 4.x style)
+    $isDevMode = ($_ENV['APP_ENV'] ?? 'dev') === 'dev';
+    $proxyDir = __DIR__ . '/var/cache/doctrine/proxies';
+    $cacheDir = __DIR__ . '/var/cache/doctrine';
+
+    // Ensure proxy and cache directories exist
+    if (!is_dir($proxyDir)) {
+        mkdir($proxyDir, 0755, true);
+    }
+    if (!is_dir($cacheDir)) {
+        mkdir($cacheDir, 0755, true);
+    }
+
+    // Modern Doctrine ORM 3.x + DBAL 4.x setup
+    $config = ORMSetup::createAttributeMetadataConfiguration(
+        paths: [__DIR__ . '/src/Entity'],
+        isDevMode: $isDevMode,
+        proxyDir: $proxyDir,
+        cache: null // Use default cache in dev mode
+    );
+
+    // Set namespace for proxy classes
+    $config->setProxyNamespace('DoctrineProxies');
+
+    // Create connection (DBAL 4.x style)
+    $connection = DriverManager::getConnection($dbParams);
+
+    // Create EntityManager (ORM 3.x style)
+    $entityManager = new EntityManager($connection, $config);
+
+    // Test database connection (DBAL 4.x - connection is tested automatically)
+    // No need to call ->connect() explicitly, DBAL 4.x handles this internally
+    
+    if ($isDevMode) {
+        echo "✅ Doctrine ORM 3.x + DBAL 4.x EntityManager initialized successfully\n";
+        if ($databaseUrl) {
+            // Mask password in URL for display
+            $displayUrl = preg_replace('/(:\/\/[^:]+:)[^@]+(@)/', '$1***$2', $databaseUrl);
+            echo "📊 Database URL: {$displayUrl}\n";
+        } else {
+            echo "📊 Database: {$dbParams['host']}:{$dbParams['port']}/{$dbParams['dbname']}\n";
+        }
+        
+        // Test connection by executing a simple query
+        try {
+            $connection->executeQuery('SELECT 1');
+            echo "🔌 Database connection verified\n";
+        } catch (\Exception $connTest) {
+            echo "⚠️  Database connection test failed: " . $connTest->getMessage() . "\n";
+        }
+    }
+
+} catch (\Exception $e) {
+    echo "❌ Failed to initialize Doctrine EntityManager: " . $e->getMessage() . "\n";
+    echo "🔧 Please check your database configuration in .env file\n";
+    
+    // In CLI mode, show more details
+    if (php_sapi_name() === 'cli') {
+        if ($databaseUrl ?? false) {
+            $displayUrl = preg_replace('/(:\/\/[^:]+:)[^@]+(@)/', '$1***$2', $databaseUrl);
+            echo "DATABASE_URL: {$displayUrl}\n";
+        } else {
+            echo "Database parameters:\n";
+            foreach ($dbParams ?? [] as $key => $value) {
+                if ($key === 'password') {
+                    $value = str_repeat('*', strlen($value));
+                }
+                echo "  {$key}: {$value}\n";
+            }
+        }
+        
+        // Show more specific error information
+        if ($e->getPrevious()) {
+            echo "Previous exception: " . $e->getPrevious()->getMessage() . "\n";
+        }
+    }
+    
+    exit(1);
+}
+
+// Make EntityManager globally available for CLI scripts
+$GLOBALS['entityManager'] = $entityManager;
