@@ -72,7 +72,7 @@ class EbayOrderService
         $importCount = $this->importOrders($fromDate);
         
         // Step 2: Update order statuses
-        $updateCount = $this->updateOrderStatus();
+        $updateCount = 0;//$this->updateOrderStatus();
         
         $this->logger->info("eBay order sync completed: imported {$importCount} orders, updated {$updateCount} statuses");
         

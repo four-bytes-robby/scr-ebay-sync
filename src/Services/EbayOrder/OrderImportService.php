@@ -63,18 +63,18 @@ class OrderImportService
             
             $this->logger->info("Found {$orders['total']} orders to process");
             
-            // Filter to only completed orders
-            $completedOrders = array_filter($orders['orders'], function($order) {
-                return $order['orderFulfillmentStatus'] === 'FULFILLED' || 
+            // Filter to only open and paid orders
+            $openOrders = array_filter($orders['orders'], function($order) {
+                return $order['orderFulfillmentStatus'] === 'NOT_STARTED' ||
                       ($order['orderPaymentStatus'] === 'PAID' && !isset($order['cancelStatus']));
             });
-            
+
             // Get already imported order IDs
             $importedOrderIds = $this->getImportedOrderIds($fromDate);
             
             // Process each order
             $importCount = 0;
-            foreach ($completedOrders as $order) {
+            foreach ($openOrders as $order) {
                 // Skip if already imported
                 if (in_array($order['orderId'], $importedOrderIds)) {
                     $this->logger->debug("Skipping already imported order {$order['orderId']}");
@@ -107,7 +107,7 @@ class OrderImportService
         
         try {
             // Get detailed order info if needed
-            if (!isset($order['lineItems']) || !isset($order['buyer']) || !isset($order['shippingAddress'])) {
+            if (!isset($order['lineItems']) || !isset($order['buyer']) || !isset($order['fulfillmentStartInstructions'])) {
                 $order = $this->fulfillmentApi->getOrder($order['orderId']);
             }
             

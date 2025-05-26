@@ -3,14 +3,18 @@
 namespace Four\ScrEbaySync\Services;
 
 use DateTime;
+use Exception;
 use Four\ScrEbaySync\Entity\ScrItem;
 use Four\ScrEbaySync\Entity\EbayItem;
 use Four\ScrEbaySync\Api\eBay\Inventory;
+use Four\ScrEbaySync\Repository\ScrItemRepository;
 use Four\ScrEbaySync\Services\EbayListing\DescriptionFormatter;
 use Four\ScrEbaySync\Services\EbayListing\ImageService;
 use Four\ScrEbaySync\Services\EbayListing\ItemConverter;
 use Doctrine\ORM\EntityManagerInterface;
+use GuzzleHttp\Exception\ClientException;
 use Monolog\Logger;
+use RuntimeException;
 
 /**
  * Service for managing eBay inventory operations
@@ -92,7 +96,7 @@ class EbayInventoryService
                 $this->logger->error("Failed to create eBay listing for item {$scrItem->getId()}: No listing ID in response", ['response' => $response]);
                 return null;
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->error("Exception creating eBay listing for item {$scrItem->getId()}: " . $e->getMessage());
             $this->logger->error($e->getTraceAsString());
             return null;
@@ -164,7 +168,7 @@ class EbayInventoryService
                 $this->logger->error("Failed to update eBay listing for item {$scrItem->getId()}: No listing ID in response", ['response' => $response]);
                 return false;
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->error("Exception updating eBay listing for item {$scrItem->getId()}: " . $e->getMessage());
             return false;
         }
@@ -195,7 +199,7 @@ class EbayInventoryService
             $this->entityManager->flush();
             
             return true;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->error("Exception updating quantity for item {$scrItem->getId()}: " . $e->getMessage());
             return false;
         }
@@ -233,9 +237,327 @@ class EbayInventoryService
             $this->entityManager->flush();
             
             return true;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->error("Exception ending listing {$ebayItem->getEbayItemId()}: " . $e->getMessage());
             return false;
+        }
+    }
+    
+    /**
+     * Pull all inventory data from eBay and sync to database
+     *
+     * @param int $limit Maximum number of items to process (0 = no limit)
+     * @return array Results with counts and changes
+     */
+    public function pullAllInventory(int $limit = 0): array
+    {
+        $this->logger->info("Starting full inventory pull from eBay" . ($limit > 0 ? " (limit: {$limit})" : ""));
+        
+        $results = [
+            'processed' => 0,
+            'updated' => 0,
+            'created' => 0,
+            'errors' => 0,
+            'changes' => [],
+            'error_items' => []
+        ];
+        
+        try {
+            // Get all inventory items from eBay
+            $offset = 0;
+            $batchSize = 100; // eBay API limit
+            
+            do {
+                $inventoryResponse = $this->inventoryApi->getAllInventoryItems($batchSize, $offset);
+                
+                if (!isset($inventoryResponse['inventoryItems']) || empty($inventoryResponse['inventoryItems'])) {
+                    break;
+                }
+                
+                foreach ($inventoryResponse['inventoryItems'] as $inventoryItem) {
+                    if ($limit > 0 && $results['processed'] >= $limit) {
+                        break 2; // Break out of both loops
+                    }
+                    
+                    $sku = $inventoryItem['sku'] ?? null;
+                    if (!$sku) {
+                        continue;
+                    }
+                    
+                    try {
+                        $change = $this->syncInventoryItem($sku, $inventoryItem);
+                        if ($change) {
+                            $results['changes'][] = $change;
+                            if ($change['action'] === 'updated') {
+                                $results['updated']++;
+                            } elseif ($change['action'] === 'created') {
+                                $results['created']++;
+                            }
+                        }
+                        $results['processed']++;
+                        
+                    } catch (Exception $e) {
+                        $results['errors']++;
+                        $results['error_items'][] = [
+                            'sku' => $sku,
+                            'error' => $e->getMessage()
+                        ];
+                        $this->logger->error("Failed to sync inventory item {$sku}: " . $e->getMessage());
+                    }
+                }
+                
+                $offset += $batchSize;
+                $this->logger->info("Processed batch, total items: {$results['processed']}");
+                
+            } while (isset($inventoryResponse['next']) && $inventoryResponse['next']);
+            
+        } catch (Exception $e) {
+            $this->logger->error("Failed to pull inventory from eBay: " . $e->getMessage());
+            $results['error_items'][] = [
+                'sku' => 'GLOBAL',
+                'error' => $e->getMessage()
+            ];
+        }
+        
+        $this->logger->info("Inventory pull completed", $results);
+        return $results;
+    }
+    
+    /**
+     * Sync a single inventory item from eBay data
+     *
+     * @param string $sku The item SKU
+     * @param array $inventoryData The eBay inventory data
+     * @return array|null Change information or null if no changes
+     */
+    private function syncInventoryItem(string $sku, array $inventoryData): ?array
+    {
+        // Find corresponding SCR item
+        $scrItem = $this->entityManager->getRepository(ScrItem::class)->find($sku);
+        if (!$scrItem) {
+            $this->logger->warning("SKU {$sku} not found in SCR database, skipping");
+            return null;
+        }
+        
+        // Get or create EbayItem
+        $ebayItem = $scrItem->getEbayItem();
+        $isNew = false;
+        
+        if (!$ebayItem) {
+            $ebayItem = new EbayItem();
+            $ebayItem->setItemId($sku);
+            $ebayItem->setScrItem($scrItem);
+            $ebayItem->setCreated(new DateTime());
+            $isNew = true;
+        }
+        
+        // Extract data from eBay inventory
+        $ebayQuantity = $inventoryData['availability']['shipToLocationAvailability']['quantity'] ?? 0;
+        $ebayPrice = null;
+        
+        // Try to get price from offers if available
+        if (isset($inventoryData['offers']) && !empty($inventoryData['offers'])) {
+            $ebayPrice = $inventoryData['offers'][0]['pricingSummary']['price']['value'] ?? null;
+        }
+        
+        // If no price in inventory data, try to get from current offer
+        if (!$ebayPrice) {
+            try {
+                $offerResponse = $this->inventoryApi->getOffers($sku);
+                if (isset($offerResponse['offers'][0]['pricingSummary']['price']['value'])) {
+                    $ebayPrice = $offerResponse['offers'][0]['pricingSummary']['price']['value'];
+                }
+            } catch (Exception $e) {
+                $this->logger->debug("Could not get offer price for {$sku}: " . $e->getMessage());
+            }
+        }
+        
+        // Check for changes
+        $oldQuantity = $ebayItem->getQuantity();
+        $oldPrice = (float)$ebayItem->getPrice();
+        $newPrice = $ebayPrice ? (float)$ebayPrice : $oldPrice;
+        
+        $hasChanges = $ebayQuantity != $oldQuantity || abs($newPrice - $oldPrice) > 0.01;
+        
+        if ($hasChanges || $isNew) {
+            $ebayItem->setQuantity($ebayQuantity);
+            if ($ebayPrice) {
+                $ebayItem->setPrice((string)$newPrice);
+            }
+            $ebayItem->setUpdated(new DateTime());
+            $ebayItem->setDeleted(null); // Mark as active
+            
+            $this->entityManager->persist($ebayItem);
+            $this->entityManager->flush();
+            
+            return [
+                'sku' => $sku,
+                'action' => $isNew ? 'created' : 'updated',
+                'changes' => [
+                    'quantity' => ['old' => $oldQuantity, 'new' => $ebayQuantity],
+                    'price' => ['old' => $oldPrice, 'new' => $newPrice]
+                ]
+            ];
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Migrate old eBay listings to inventory format using bulk migration
+     *
+     * @param array $listingIds Array of eBay listing IDs to migrate
+     * @return array Migration results
+     */
+    public function bulkMigrateListings(array $listingIds): array
+    {
+        $this->logger->info("Starting bulk migration of " . count($listingIds) . " listings to inventory format");
+        
+        $results = [
+            'total' => count($listingIds),
+            'migrated' => 0,
+            'failed' => 0,
+            'errors' => []
+        ];
+        
+        if (empty($listingIds)) {
+            return $results;
+        }
+        
+        try {
+            // Call eBay bulk migrate API
+            $response = $this->inventoryApi->bulkMigrateListing($listingIds);
+            
+            $this->logger->debug("Bulk migrate response: " . json_encode($response, JSON_PRETTY_PRINT));
+            
+            if (isset($response['responses'])) {
+                foreach ($response['responses'] as $migrationResponse) {
+                    $listingId = $migrationResponse['listingId'] ?? 'unknown';
+                    
+                    if (isset($migrationResponse['statusCode']) && $migrationResponse['statusCode'] == 200) {
+                        $results['migrated']++;
+                        $this->logger->info("Successfully migrated listing {$listingId}");
+                        
+                        // Update database if we have the inventory location
+                        if (isset($migrationResponse['inventoryItemLocation'])) {
+                            $this->updateMigratedListing($listingId, $migrationResponse['inventoryItemLocation']);
+                        }
+                    } else {
+                        $results['failed']++;
+                        $error = $migrationResponse['errors'][0]['message'] ?? 'Unknown error';
+                        $results['errors'][] = [
+                            'listingId' => $listingId,
+                            'error' => $error
+                        ];
+                        $this->logger->error("Failed to migrate listing {$listingId}: {$error}");
+                    }
+                }
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->error("Bulk migration failed: " . $e->getMessage());
+            $results['errors'][] = [
+                'listingId' => 'BULK_OPERATION',
+                'error' => $e->getMessage()
+            ];
+        }
+        
+        $this->logger->info("Bulk migration completed", $results);
+        return $results;
+    }
+    
+    /**
+     * Find all old format listings that need migration
+     *
+     * @return array Array of listing IDs that need migration
+     */
+    public function findListingsToMigrate(): array
+    {
+        $this->logger->info("Finding old format listings that need migration");
+        try {
+            // Get all active listings from database
+
+            // Get the repository
+            /** @var ScrItemRepository $scrItemRepo */
+            $scrItemRepo = $this->entityManager->getRepository(ScrItem::class);
+
+            // Find eBay items that need updates
+            $scrItemsToMigrate = $scrItemRepo->findItemsWithEbayListings(5000);
+            $listingIdsToMigrate = array_map(function (ScrItem $item) { return $item->getEbayItemId(); }, $scrItemsToMigrate);
+
+            $this->logger->info("Found " . count($listingIdsToMigrate) . " listings that need migration");
+
+            return $listingIdsToMigrate;
+            
+        } catch (Exception $e) {
+            $this->logger->error("Failed to find listings to migrate: " . $e->getMessage());
+            return [];
+        }
+    }
+    
+    /**
+     * Update database after successful listing migration
+     *
+     * @param string $listingId The migrated listing ID
+     * @param array $inventoryLocation The new inventory location data
+     */
+    private function updateMigratedListing(string $listingId, array $inventoryLocation): void
+    {
+        try {
+            // Find the EbayItem by listing ID
+            $ebayItem = $this->entityManager->getRepository(EbayItem::class)
+                ->findOneBy(['ebay_item_id' => $listingId]);
+            
+            if ($ebayItem) {
+                // Update with new inventory format data
+                $ebayItem->setUpdated(new DateTime());
+                // Store migration info in a comment or separate field if needed
+                
+                $this->entityManager->persist($ebayItem);
+                $this->entityManager->flush();
+                
+                $this->logger->info("Updated database for migrated listing {$listingId}");
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->warning("Failed to update database for migrated listing {$listingId}: " . $e->getMessage());
+        }
+    }
+    
+    /**
+     * Get inventory item data from eBay API
+     *
+     * @param string $itemId The SKU/item ID to get inventory for
+     * @return array|null The inventory data or null if not found
+     */
+    public function getInventoryItem(string $itemId): ?array
+    {
+        $this->logger->info("Getting inventory data from eBay for item {$itemId}");
+        
+        try {
+            $response = $this->inventoryApi->getInventoryItem($itemId);
+            
+            if ($response && isset($response['sku'])) {
+                $this->logger->debug("eBay inventory response: " . json_encode($response, JSON_PRETTY_PRINT));
+                return $response;
+            } else {
+                $this->logger->warning("No inventory data found for item {$itemId}");
+                return null;
+            }
+        } catch (Exception $e) {
+            if ($e instanceof RuntimeException) {
+                $clientException = $e->getPrevious();
+                if ($clientException instanceof ClientException) {
+                    if ($clientException->getResponse()) {
+                        if ($clientException->getResponse()->getStatusCode() == 404) {
+                            $this->logger->warning("No inventory data found for item {$itemId}");
+                            return null;
+                        }
+                    }
+                }
+            }
+            $this->logger->error("Exception getting inventory data for item {$itemId}: " . $e->getMessage());
+            return null;
         }
     }
     

@@ -3,7 +3,7 @@
     "description": "Supreme Chaos Records eBay Synchronization",
     "type": "project",
     "require": {
-        "php": "^8.2",
+        "php": "^8.4",
         "doctrine/orm": "^3.0",
         "doctrine/dbal": "^4.0",
         "doctrine/persistence": "^4.0",
@@ -27,7 +27,7 @@
         "optimize-autoloader": true,
         "preferred-install": "dist",
         "platform": {
-            "php": "8.2"
+            "php": "8.4"
         }
     }
 }

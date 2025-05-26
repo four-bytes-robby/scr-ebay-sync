@@ -38,6 +38,17 @@ class OrderItemProcessor
      */
     public function createInvoicePositions(array $order, ScrInvoice $invoice): array
     {
+        // Get country for tax calculation
+        $shipTo = $order['fulfillmentStartInstructions'][0]['shippingStep']['shipTo'];
+        $countryCode = $shipTo['contactAddress']['countryCode'];
+        $country = $this->entityManager->getRepository(ScrCountry::class)
+            ->findOneBy(['ISO2' => $countryCode]);
+
+        if (!$country) {
+            throw new \RuntimeException("Country with code {$countryCode} not found");
+        }
+
+
         $positions = [];
         
         foreach ($order['lineItems'] as $lineItem) {
@@ -60,15 +71,6 @@ class OrderItemProcessor
             
             // Create position
             $position = new ScrInvoicePos();
-            
-            // Get country for tax calculation
-            $countryCode = $order['shippingAddress']['countryCode'];
-            $country = $this->entityManager->getRepository(ScrCountry::class)
-                ->findOneBy(['ISO2' => $countryCode]);
-            
-            if (!$country) {
-                throw new \RuntimeException("Country with code {$countryCode} not found");
-            }
             
             // Determine tax rate
             $taxCategory = $this->determineTaxCategory($item);

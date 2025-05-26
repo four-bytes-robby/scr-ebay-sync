@@ -2,6 +2,9 @@
 // bootstrap.php
 require_once __DIR__ . '/vendor/autoload.php';
 
+// Set timezone to Europe/Berlin (German local time)
+date_default_timezone_set('Europe/Berlin');
+
 use Doctrine\DBAL\DriverManager;
 use Doctrine\ORM\Configuration;
 use Doctrine\ORM\EntityManager;

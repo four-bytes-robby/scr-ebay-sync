@@ -6,6 +6,7 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\GuzzleException;
 use Monolog\Logger;
+use RuntimeException;
 
 abstract class ApiClient
 {
@@ -37,7 +38,7 @@ abstract class ApiClient
      * @param string $endpoint API endpoint
      * @param array $query Query parameters
      * @return array Response data
-     * @throws \RuntimeException If request fails
+     * @throws RuntimeException If request fails
      */
     protected function get(string $endpoint, array $query = []): array
     {
@@ -50,7 +51,7 @@ abstract class ApiClient
      * @param string $endpoint API endpoint
      * @param array $data Request data
      * @return array Response data
-     * @throws \RuntimeException If request fails
+     * @throws RuntimeException If request fails
      */
     protected function post(string $endpoint, array $data = []): array
     {
@@ -63,7 +64,7 @@ abstract class ApiClient
      * @param string $endpoint API endpoint
      * @param array $data Request data
      * @return array Response data
-     * @throws \RuntimeException If request fails
+     * @throws RuntimeException If request fails
      */
     protected function put(string $endpoint, array $data = []): array
     {
@@ -75,7 +76,7 @@ abstract class ApiClient
      *
      * @param string $endpoint API endpoint
      * @return array Response data
-     * @throws \RuntimeException If request fails
+     * @throws RuntimeException If request fails
      */
     protected function delete(string $endpoint): array
     {
@@ -89,7 +90,7 @@ abstract class ApiClient
      * @param string $endpoint API endpoint
      * @param array $options Request options
      * @return array Response data
-     * @throws \RuntimeException If request fails
+     * @throws RuntimeException If request fails
      */
     protected function request(string $method, string $endpoint, array $options = []): array
     {
@@ -118,7 +119,7 @@ abstract class ApiClient
                 'response' => $response,
             ]);
             
-            throw new \RuntimeException('eBay API request failed: ' . $e->getMessage());
+            throw new RuntimeException('eBay API request failed: ' . $e->getMessage(), previous: $e);
         }
     }
 }

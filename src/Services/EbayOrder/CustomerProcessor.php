@@ -37,8 +37,10 @@ class CustomerProcessor
     public function createOrUpdateCustomer(array $order): ScrCustomer
     {
         $buyer = $order['buyer'];
-        $shippingAddress = $order['shippingAddress'];
-        
+        $buyerAddress = $buyer['buyerRegistrationAddress'];
+        $shipTo = $order['fulfillmentStartInstructions'][0]['shippingStep']['shipTo'];
+        $shippingAddress = $shipTo['contactAddress'];
+
         // Get country
         $countryCode = $shippingAddress['countryCode'];
         $country = $this->entityManager->getRepository(ScrCountry::class)
@@ -53,7 +55,8 @@ class CustomerProcessor
         // Try to find customer by email
         /** @var ScrCustomerRepository $customerRepository */
         $customerRepository = $this->entityManager->getRepository(ScrCustomer::class);
-        $customer = $customerRepository->findByEmail($buyer['email']);
+        $email = $shipTo['email'] ?? $buyerAddress['email'];
+        $customer = $customerRepository->findByEmail($email);
         
         if (!$customer) {
             // Create new customer
@@ -63,7 +66,7 @@ class CustomerProcessor
             $nextId = $customerRepository->getNextId();
             
             $customer->setId($nextId);
-            $customer->setMail(strtolower($buyer['email']));
+            $customer->setMail(strtolower($email));
             $customer->setVatIdNo('');
             $customer->setPhone('');
             $customer->setZip('');
@@ -73,7 +76,7 @@ class CustomerProcessor
         // Update customer details
         
         // Name processing
-        $fullName = $shippingAddress['fullName'];
+        $fullName = $shipTo['fullName'];
         $nameParts = explode(' ', $fullName);
         
         $firstName = '';
@@ -121,13 +124,14 @@ class CustomerProcessor
         
         // Phone number processing
         $phone = '';
-        
-        if (!empty($shippingAddress['phoneNumber'])) {
-            $phone = $shippingAddress['phoneNumber'];
-        } else if (!empty($buyer['phoneNumber'])) {
-            $phone = $buyer['phoneNumber'];
+
+        if (isset($shipTo['primaryPhone'])) {
+            $phone = $shipTo['primaryPhone']['phoneNumber'] ?? '';
         }
-        
+        if (!$phone && isset($buyerAddress['primaryPhone'])) {
+            $phone = $buyerAddress['primaryPhone']['phoneNumber'] ?? '';
+        }
+
         if (!empty($phone) && $phone !== 'Invalid Request') {
             // Format phone number
             if (!str_starts_with($phone, '00')) {

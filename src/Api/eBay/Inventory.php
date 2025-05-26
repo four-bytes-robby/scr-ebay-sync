@@ -247,4 +247,88 @@ class Inventory extends ApiClient
     {
         return $this->withdrawOffer($offerId);
     }
+
+    /**
+     * Get all inventory items with pagination support
+     *
+     * @param int $limit Items per page (max 100)
+     * @param int $offset Offset for pagination
+     * @return array Response data with inventory items
+     */
+    public function getAllInventoryItems(int $limit = 100, int $offset = 0): array
+    {
+        $query = [
+            'limit' => min($limit, 100), // eBay API limit
+            'offset' => $offset
+        ];
+        
+        return $this->get("/sell/inventory/{$this->apiVersion}/inventory_item", $query);
+    }
+
+    /**
+     * Bulk migrate listings from old format to inventory format
+     *
+     * @param array $listingIds Array of listing IDs to migrate
+     * @return array Migration results
+     */
+    public function bulkMigrateListing(array $listingIds): array
+    {
+        $data = [
+            'requests' => array_map(function($listingId) {
+                return ['listingId' => $listingId];
+            }, $listingIds)
+        ];
+        
+        return $this->post("/sell/inventory/{$this->apiVersion}/bulk_migrate_listing", $data);
+    }
+
+    /**
+     * Get all active listings (for finding old format listings)
+     *
+     * @param int $limit Items per page (max 100)
+     * @param int $offset Offset for pagination
+     * @return array Active listings data
+     */
+    public function getAllActiveListings(int $limit = 100, int $offset = 0): array
+    {
+        // This would typically use the Trading API or Browse API
+        // For now, we'll use a placeholder that gets offers and derives listings
+        $query = [
+            'limit' => min($limit, 100),
+            'offset' => $offset
+        ];
+        
+        // Get all offers first, then check which are published
+        $offersResponse = $this->get("/sell/inventory/{$this->apiVersion}/inventory_item", $query);
+        
+        $activeListings = [];
+        if (isset($offersResponse['offers'])) {
+            foreach ($offersResponse['offers'] as $offer) {
+                if (isset($offer['listingId']) && $offer['status'] === 'PUBLISHED') {
+                    $activeListings[] = [
+                        'listingId' => $offer['listingId'],
+                        'offerId' => $offer['offerId'],
+                        'sku' => $offer['sku'],
+                        'format' => 'INVENTORY' // Since these come from inventory API
+                    ];
+                }
+            }
+        }
+        
+        return $activeListings;
+    }
+
+    /**
+     * Get listings that need migration (legacy Trading API listings)
+     * This is a placeholder - would typically require Trading API access
+     *
+     * @return array Array of legacy listing IDs
+     */
+    public function getLegacyListings(): array
+    {
+        // This would require Trading API GetMyeBaySelling call
+        // For now, return empty array - this needs Trading API implementation
+        $this->logger->warning('getLegacyListings requires Trading API - returning empty array');
+        return [];
+    }
 }

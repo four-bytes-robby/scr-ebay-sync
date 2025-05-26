@@ -2,6 +2,8 @@
 // src/Api/eBay/Fulfillment.php
 namespace Four\ScrEbaySync\Api\eBay;
 
+use DateTime;
+use DateTimeZone;
 use Monolog\Logger;
 
 /**
@@ -34,20 +36,22 @@ class Fulfillment extends ApiClient
     /**
      * Get orders by creation date
      *
-     * @param \DateTime $fromDate Start date
-     * @param \DateTime|null $toDate End date (defaults to now)
+     * @param DateTime $fromDate Start date
+     * @param DateTime|null $toDate End date (defaults to now)
      * @param int $limit Maximum number of orders (default 50)
      * @return array Order data
      */
-    public function getOrdersByCreationDate(\DateTime $fromDate, ?\DateTime $toDate = null, int $limit = 50): array
+    public function getOrdersByCreationDate(DateTime $fromDate, ?DateTime $toDate = null, int $limit = 50): array
     {
-        $toDate = $toDate ?? new \DateTime();
-        
+        $toDateString = $toDate ? $toDate->format('Y-m-d\TH:i:s\Z') : '';
+
         $queryParams = [
-            'filter' => 'creationdate:[' . $fromDate->format('Y-m-d\TH:i:s\Z') . '..' . $toDate->format('Y-m-d\TH:i:s\Z') . ']',
+            'filter' => 'creationdate:[' . $fromDate->format('Y-m-d\TH:i:s\Z') . '..' . $toDateString . ']',
             'limit' => $limit
         ];
-        
+
+        $this->logger->debug("Get orders with filter {$queryParams['filter']}.");
+
         return $this->getOrders($queryParams);
     }
 
@@ -108,12 +112,12 @@ class Fulfillment extends ApiClient
      * @param string $orderId The eBay order ID
      * @param string $trackingNumber Shipping tracking number
      * @param string $carrier Shipping carrier
-     * @param \DateTime|null $shippedDate Shipped date (defaults to now)
+     * @param DateTime|null $shippedDate Shipped date (defaults to now)
      * @return array Response data
      */
-    public function markAsShipped(string $orderId, string $trackingNumber, string $carrier, ?\DateTime $shippedDate = null): array
+    public function markAsShipped(string $orderId, string $trackingNumber, string $carrier, ?DateTime $shippedDate = null): array
     {
-        $shippedDate = $shippedDate ?? new \DateTime();
+        $shippedDate = $shippedDate ?? new DateTime();
         
         // Get order line items first
         $order = $this->getOrder($orderId);

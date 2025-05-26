@@ -355,6 +355,7 @@ class ScrItemRepository extends EntityRepository
     {
         return $this->createEagerEbayQueryBuilder()
             ->where('e IS NOT NULL')
+            ->andWhere('e.quantity > 0')
             ->setMaxResults($limit)
             ->getQuery()
             ->getResult();
