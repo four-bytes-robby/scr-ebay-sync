@@ -128,3 +128,45 @@ class EbayTransactionRepository extends EntityRepository
         return $qb->getQuery()->getResult();
     }
 }
+    
+    /**
+     * Find transactions that were recently updated (within specified hours)
+     *
+     * @param int $hours Number of hours to look back (default: 1)
+     * @return array Recently updated transactions
+     */
+    public function findRecentlyUpdated(int $hours = 1): array
+    {
+        $cutoffTime = new \DateTime();
+        $cutoffTime->modify("-{$hours} hours");
+        
+        $qb = $this->createQueryBuilder('t');
+        $qb->where('t.updated >= :cutoffTime')
+            ->setParameter('cutoffTime', $cutoffTime)
+            ->orderBy('t.updated', 'DESC');
+            
+        return $qb->getQuery()->getResult();
+    }
+    
+    /**
+     * Count transactions that need status updates but were recently attempted
+     *
+     * @param int $hours Number of hours to look back (default: 1)
+     * @return int Count of blocked transactions
+     */
+    public function countRecentlyAttempted(int $hours = 1): int
+    {
+        $cutoffTime = new \DateTime();
+        $cutoffTime->modify("-{$hours} hours");
+        
+        $qb = $this->getEntityManager()->createQueryBuilder();
+        $qb->select('COUNT(t.ebayTransactionId)')
+            ->from(EbayTransaction::class, 't')
+            ->join('Four\ScrEbaySync\Entity\ScrInvoice', 'i', 'WITH', 't.invoice_id = i.id')
+            ->where('(t.paid = 0 AND i.paydat IS NOT NULL) OR (t.shipped = 0 AND i.dispatchdat IS NOT NULL) OR (t.canceled = 0 AND i.closed = 1)')
+            ->andWhere('t.updated >= :cutoffTime')
+            ->setParameter('cutoffTime', $cutoffTime);
+            
+        return (int) $qb->getQuery()->getSingleScalarResult();
+    }
+}

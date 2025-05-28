@@ -170,6 +170,11 @@ class ScrItemRepository extends EntityRepository
     /**
      * Find items with updated information (name, description, etc.) - ENHANCED
      * Now includes price changes detection and better filtering
+     * WICHTIG: Nur Items, die seit dem letzten eBay-Sync geändert wurden
+     * 
+     * Logik:
+     * - i.updated > e.updated: SCR Item wurde seit letztem eBay-Update geändert
+     * - Preisunterschiede >= 1 Cent werden immer als Update erkannt
      * 
      * @param int $limit
      * @return ScrItem[]
@@ -177,7 +182,8 @@ class ScrItemRepository extends EntityRepository
     public function findUpdatedItems(int $limit = 50): array
     {
         return $this->createEbayOnlineItemsQueryBuilder()
-            ->andWhere('(i.updated > e.updated OR (i.price - e.price) >= 0.01 OR (e.price - i.price) >= 0.01)')
+            ->andWhere('(i.updated > e.updated) OR (ABS(i.price - e.price) >= 0.01)')
+            ->orderBy('i.updated', 'DESC') // Neueste Änderungen zuerst
             ->setMaxResults($limit)
             ->getQuery()
             ->getResult();

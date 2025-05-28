@@ -2,6 +2,7 @@
 // src/Entity/ScrInvoice.php
 namespace Four\ScrEbaySync\Entity;
 
+use DateTime;
 use Doctrine\ORM\Mapping as ORM;
 use Four\ScrEbaySync\Repository\ScrInvoiceRepository;
 
@@ -23,10 +24,10 @@ class ScrInvoice
     private int $customer_id;
 
     #[ORM\Column(type: "datetime", nullable: true)]
-    private ?\DateTime $receivedat = null;
+    private ?DateTime $receivedat = null;
 
     #[ORM\Column(type: "datetime", nullable: true)]
-    private ?\DateTime $paydat = null;
+    private ?DateTime $paydat = null;
 
     #[ORM\Column(type: "string", length: 10)]
     private string $paymethod;
@@ -35,13 +36,13 @@ class ScrInvoice
     private string $payment_id;
 
     #[ORM\Column(type: "datetime", nullable: true)]
-    private ?\DateTime $invoicedat = null;
+    private ?DateTime $invoicedat = null;
 
     #[ORM\Column(type: "datetime", nullable: true)]
-    private ?\DateTime $printdat = null;
+    private ?DateTime $printdat = null;
 
     #[ORM\Column(type: "datetime", nullable: true)]
-    private ?\DateTime $dispatchdat = null;
+    private ?DateTime $dispatchdat = null;
 
     #[ORM\Column(type: "float")]
     private float $postage;
@@ -97,6 +98,9 @@ class ScrInvoice
     #[ORM\Column(type: "decimal", precision: 5, scale: 2, nullable: true)]
     private ?string $paymentfee = null;
 
+    #[ORM\Column(type: "datetime")]
+    public DateTime $updated;
+
     // Getter and setter methods
     public function getId(): int
     {
@@ -142,23 +146,23 @@ class ScrInvoice
         return $this;
     }
 
-    public function getReceivedat(): ?\DateTime
+    public function getReceivedat(): ?DateTime
     {
         return $this->receivedat;
     }
 
-    public function setReceivedat(?\DateTime $receivedat): self
+    public function setReceivedat(?DateTime $receivedat): self
     {
         $this->receivedat = $receivedat;
         return $this;
     }
 
-    public function getPaydat(): ?\DateTime
+    public function getPaydat(): ?DateTime
     {
         return $this->paydat;
     }
 
-    public function setPaydat(?\DateTime $paydat): self
+    public function setPaydat(?DateTime $paydat): self
     {
         $this->paydat = $paydat;
         return $this;
@@ -186,34 +190,34 @@ class ScrInvoice
         return $this;
     }
 
-    public function getInvoicedat(): ?\DateTime
+    public function getInvoicedat(): ?DateTime
     {
         return $this->invoicedat;
     }
 
-    public function setInvoicedat(?\DateTime $invoicedat): self
+    public function setInvoicedat(?DateTime $invoicedat): self
     {
         $this->invoicedat = $invoicedat;
         return $this;
     }
 
-    public function getPrintdat(): ?\DateTime
+    public function getPrintdat(): ?DateTime
     {
         return $this->printdat;
     }
 
-    public function setPrintdat(?\DateTime $printdat): self
+    public function setPrintdat(?DateTime $printdat): self
     {
         $this->printdat = $printdat;
         return $this;
     }
 
-    public function getDispatchdat(): ?\DateTime
+    public function getDispatchdat(): ?DateTime
     {
         return $this->dispatchdat;
     }
 
-    public function setDispatchdat(?\DateTime $dispatchdat): self
+    public function setDispatchdat(?DateTime $dispatchdat): self
     {
         $this->dispatchdat = $dispatchdat;
         return $this;
@@ -314,6 +318,268 @@ class ScrInvoice
 
     public function setImportant(string $important): self
     {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         $this->important = $important;
         return $this;
     }
@@ -397,7 +663,7 @@ class ScrInvoice
 
     public function getShipper(): string
     {
-        return $this->shipper;
+        return $this->shipper ?? '';
     }
 
     public function setShipper(string $shipper): self

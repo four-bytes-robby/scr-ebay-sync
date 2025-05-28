@@ -76,26 +76,54 @@ class EbayInventoryService
             // Log inventory item and offer data at debug level
             $this->logger->debug("Inventory item data: " . json_encode($inventoryItemData, JSON_PRETTY_PRINT));
             $this->logger->debug("Offer data: " . json_encode($offerData, JSON_PRETTY_PRINT));
-            
-            // Send to eBay
-            $response = $this->inventoryApi->createListing(
-                $scrItem->getId(),
-                $inventoryItemData,
-                $offerData
-            );
-            
-            $this->logger->debug("eBay create listing response: " . json_encode($response, JSON_PRETTY_PRINT));
-            
-            if (isset($response['listingId'])) {
-                // Save the eBay item to our database
-                $this->saveEbayItem($scrItem, $response['listingId'], $itemConverter->getQuantity(), $itemConverter->getPrice());
-                
-                $this->logger->info("Successfully created eBay listing {$response['listingId']} for item {$scrItem->getId()}");
-                return $response['listingId'];
-            } else {
-                $this->logger->error("Failed to create eBay listing for item {$scrItem->getId()}: No listing ID in response", ['response' => $response]);
-                return null;
+
+            try {
+                // Send to eBay
+                $response = $this->inventoryApi->createListing(
+                    $scrItem->getId(),
+                    $inventoryItemData,
+                    $offerData
+                );
+
+                $this->logger->debug("eBay create listing response: " . json_encode($response, JSON_PRETTY_PRINT));
+
+                if (isset($response['listingId'])) {
+                    // Save the eBay item to our database
+                    $this->saveEbayItem($scrItem, $response['listingId'], $itemConverter->getQuantity(), $itemConverter->getPrice());
+
+                    $this->logger->info("Successfully created eBay listing {$response['listingId']} for item {$scrItem->getId()}");
+                    return $response['listingId'];
+                } else {
+                    $this->logger->error("Failed to create eBay listing for item {$scrItem->getId()}: No listing ID in response", ['response' => $response]);
+                    return null;
+                }
+            } catch (Exception $e) {
+                // Could not create offer, try to get existing offers for item
+                $this->logger->warning("Could not create offer, try to get existing offers for item {$scrItem->getId()}");
+                $existingOffers = $this->inventoryApi->getOffers($scrItem->getId());
+                if (!empty($existingOffers['offers'])) {
+                    $offer = $existingOffers['offers'][0];
+                    $listingId = $offer['listingId'] ?? null;
+
+                    if ($listingId) {
+                        // Save/update the eBay item in database
+                        $this->saveEbayItem($scrItem, $listingId, $itemConverter->getQuantity(), $itemConverter->getPrice());
+                        $this->logger->info("Found existing active listing {$listingId} for item {$scrItem->getId()}");
+                        return $listingId;
+                    } else {
+                        // Check if we already have this item in our DB with a valid listing ID
+                        $existingEbayItem = $scrItem->getEbayItem();
+                        if ($existingEbayItem && $existingEbayItem->getEbayItemId() && $existingEbayItem->getQuantity() > 0) {
+                            $this->logger->info("Found existing DB listing {$existingEbayItem->getEbayItemId()} for item {$scrItem->getId()}, skipping republish");
+                            return $existingEbayItem->getEbayItemId();
+                        }
+
+                        $this->logger->warning("Offer exists but no listing ID found for item {$scrItem->getId()}, attempting update");
+                        return $this->updateListing($scrItem);
+                    }
+                }
             }
+
         } catch (Exception $e) {
             $this->logger->error("Exception creating eBay listing for item {$scrItem->getId()}: " . $e->getMessage());
             $this->logger->error($e->getTraceAsString());
@@ -107,12 +135,11 @@ class EbayInventoryService
      * Update an existing eBay listing
      *
      * @param ScrItem $scrItem The item to update
-     * @return bool Success status
+     * @return string|null The listing ID or null if failed
      */
-    public function updateListing(ScrItem $scrItem): bool
+    public function updateListing(ScrItem $scrItem): ?string
     {
-        $ebayItem = $scrItem->getEbayItem();
-        $this->logger->info("Updating eBay listing {$ebayItem->getEbayItemId()} for item {$scrItem->getId()}");
+        $this->logger->info("Updating eBay listing for item {$scrItem->getId()}");
         
         try {
             // Create the item converter
@@ -127,7 +154,7 @@ class EbayInventoryService
             $imageUrls = $imageService->getImageUrls();
             if (empty($imageUrls)) {
                 $this->logger->warning("Skipping update for item {$scrItem->getId()} - no images found");
-                return false;
+                return null;
             }
             
             // Convert to inventory item format
@@ -138,69 +165,109 @@ class EbayInventoryService
             
             if (empty($offerResponse['offers'])) {
                 $this->logger->error("No offers found for item {$scrItem->getId()}");
-                return false;
+                return null;
             }
             
-            $offerId = $offerResponse['offers'][0]['offerId'];
+            $offer = $offerResponse['offers'][0];
+            $offerId = $offer['offerId'];
             
             // Update offer data
             $offerData = $itemConverter->createOffer();
             
-            // Send to eBay
-            $response = $this->inventoryApi->updateListing(
-                $scrItem->getId(),
-                $offerId, 
-                $inventoryItemData,
-                $offerData
-            );
+            // If offer not published yet, publish it instead of updating
+//            if (!isset($offer['listingId']) ||
+// empty($offer['listingId'])) {
+//                $this->logger->info("Publishing unpublished offer {$offerId} for item {$scrItem->getId()}");
+//                $response = $this->inventoryApi->publishOffer($offerId);
+//            } else {
+            $this->logger->info("Update item listing for item {$scrItem->getId()}");
+                // Update existing published listing
+                $response = $this->inventoryApi->updateListing(
+                    $scrItem->getId(),
+                    $offerId, 
+                    $inventoryItemData,
+                    $offerData
+                );
+        //}
+
             
             if (isset($response['listingId'])) {
-                // Update the eBay item in our database
-                $ebayItem->setQuantity($itemConverter->getQuantity());
-                $ebayItem->setPrice((string)$itemConverter->getPrice());
-                $ebayItem->setUpdated(new DateTime());
-                $this->entityManager->persist($ebayItem);
-                $this->entityManager->flush();
+                // WICHTIG: Nur bei erfolgreichem eBay-Update das updated Feld aktualisieren
+                $this->saveEbayItem($scrItem, $response['listingId'], $itemConverter->getQuantity(), $scrItem->getPrice());
                 
                 $this->logger->info("Successfully updated eBay listing {$response['listingId']} for item {$scrItem->getId()}");
-                return true;
+                return $response['listingId'];
             } else {
                 $this->logger->error("Failed to update eBay listing for item {$scrItem->getId()}: No listing ID in response", ['response' => $response]);
-                return false;
+                return null;
             }
         } catch (Exception $e) {
             $this->logger->error("Exception updating eBay listing for item {$scrItem->getId()}: " . $e->getMessage());
-            return false;
+            return null;
         }
     }
     
     /**
      * Update inventory quantity for an existing listing
+     * Wenn quantity 0 ist, wird das Item gelöscht/beendet statt aktualisiert
      *
      * @param ScrItem $scrItem The item to update
      * @return bool Success status
      */
     public function updateQuantity(ScrItem $scrItem): bool
     {
-        $quantity = min($scrItem->getQuantity(), 3); // Max 3
-
         $ebayItem = $scrItem->getEbayItem();
+        $newQuantity = min($scrItem->getQuantity(), 3); // Max 3
 
-        $this->logger->info("Updating quantity to {$quantity} for eBay listing {$ebayItem->getEbayItemId()}");
+        $this->logger->info("Updating quantity to {$newQuantity} for eBay item {$scrItem->getId()}");
         
         try {
-            // Update the quantity on eBay
-            $response = $this->inventoryApi->updateQuantity($scrItem->getId(), $quantity);
+            // Wenn quantity 0 ist, Item löschen/beenden
+            if ($newQuantity <= 0) {
+                $this->logger->info("Quantity is 0, ending listing for item {$scrItem->getId()}");
+                return $this->endListing($scrItem);
+            }
             
-            // Update the eBay item in our database
-            $ebayItem->setQuantity($quantity);
-            $ebayItem->setUpdated(new DateTime());
-            $this->entityManager->persist($ebayItem);
-            $this->entityManager->flush();
+            // Korrekte Inventory Item Struktur für Bestandsaktualierung
+            $inventoryItemData = [
+                'availability' => [
+                    'shipToLocationAvailability' => [
+                        'quantity' => $newQuantity
+                    ]
+                ]
+            ];
             
-            return true;
+            // Verwende die korrekte eBay Inventory API Methode
+            $response = $this->inventoryApi->createOrUpdateInventoryItem($scrItem->getId(), $inventoryItemData);
+            
+            // KRITISCH: NUR bei erfolgreichem eBay API-Call das updated Feld aktualisieren
+            // Das verhindert, dass Items als "bereits synchronisiert" markiert werden, obwohl der API-Call fehlgeschlagen ist
+            if ($response) {
+                $ebayItem->setQuantity($newQuantity);
+                $ebayItem->setUpdated(new DateTime());
+                $this->entityManager->persist($ebayItem);
+                $this->entityManager->flush();
+                
+                $this->logger->info("Successfully updated quantity to {$newQuantity} for item {$scrItem->getId()}");
+                return true;
+            } else {
+                $this->logger->error("eBay API call failed for quantity update of item {$scrItem->getId()}");
+                return false;
+            }
+            
         } catch (Exception $e) {
             $this->logger->error("Exception updating quantity for item {$scrItem->getId()}: " . $e->getMessage());
+            
+            // WICHTIG: Bei Exception NICHT das updated Feld setzen!
+            // Das Item sollte beim nächsten Sync-Lauf erneut versucht werden
+            
+            // Falls der Fehler wegen quantity=0 kommt, versuche das Item zu beenden
+            if (strpos($e->getMessage(), 'invalid quantity') !== false || 
+                strpos($e->getMessage(), 'mehr als 0 betragen') !== false) {
+                $this->logger->info("Quantity error detected, attempting to end listing for item {$scrItem->getId()}");
+                return $this->endListing($scrItem);
+            }
+            
             return false;
         }
     }
@@ -581,6 +648,7 @@ class EbayInventoryService
         if (!$ebayItem) {
             // Create new eBay item
             $ebayItem = new EbayItem();
+            $ebayItem->setScrItem($scrItem);
             $ebayItem->setItemId($scrItem->getId());
             $ebayItem->setCreated($now);
         }
@@ -589,8 +657,9 @@ class EbayInventoryService
         $ebayItem->setEbayItemId($ebayItemId);
         $ebayItem->setQuantity($quantity);
         $ebayItem->setPrice((string)$price);
+        // Only update 'updated' timestamp when actually syncing TO eBay
         $ebayItem->setUpdated($now);
-        
+
         // Save to database
         $this->entityManager->persist($ebayItem);
         $this->entityManager->flush();

@@ -14,7 +14,7 @@ class CategoryResolver
     private ScrItem $scrItem;
     private EntityManagerInterface $entityManager;
     private ?Logger $logger;
-    
+
     // Category mappings based on ebayConsts.cs
     private const CATEGORY_MAPPING = [
         'CDs-Black & Death Metal' => 33288,
@@ -62,7 +62,7 @@ class CategoryResolver
         'Others-Others' => 21756,
         'Tickets-Tickets' => 34814,
     ];
-    
+
     // Store category mappings
     private const STORE_CATEGORY_MAPPING = [
         'SCR-Releases' => 19249599,
@@ -81,7 +81,7 @@ class CategoryResolver
         'Others-Others' => 1,
         'Tickets-Tickets' => 3510352010,
     ];
-    
+
     // Genre mapping for store categories
     private const GENRE_TO_STORE_CATEGORY = [
         'Black & Death Metal' => 'Black, Death, Thrash Metal',
@@ -103,7 +103,7 @@ class CategoryResolver
         'Others' => 'Others',
         'Tickets' => 'Tickets',
     ];
-    
+
     /**
      * @param ScrItem $scrItem The SCR item entity
      * @param EntityManagerInterface $entityManager Entity manager for DB access
@@ -118,7 +118,7 @@ class CategoryResolver
         $this->entityManager = $entityManager;
         $this->logger = $logger ?? new Logger('category_resolver');
     }
-    
+
     /**
      * Get the category search parts (firstPart and secondPart)
      * 
@@ -129,12 +129,12 @@ class CategoryResolver
         $firstPart = $this->scrItem->getGroupId();
         $secondPart = $this->scrItem->getGroupId();
         $name = $this->scrItem->getName();
-        
+
         // Determine secondPart for CDs and Vinyl based on genre
         if ($firstPart == 'CDs' || $firstPart == 'Vinyl') {
             $secondPart = $this->matchGenre($this->scrItem->getGenre());
         }
-        
+
         // Special cases for "Others" group
         if ($firstPart == 'Others') {
             if (strpos($name, 'PATCH)') !== false) {
@@ -147,7 +147,7 @@ class CategoryResolver
                 $secondPart = 'Casettes';
             }
         }
-        
+
         // Special cases for "Clothes" group
         if ($firstPart == 'Clothes') {
             // Match T-SHIRT, GIRLIE, ZIPPER, HOODIE, etc.
@@ -160,10 +160,10 @@ class CategoryResolver
                 $secondPart = 'T-Shirt';
             }
         }
-        
+
         return [$firstPart, $secondPart];
     }
-    
+
     /**
      * Match genre to eBay category genre
      * 
@@ -172,11 +172,28 @@ class CategoryResolver
      */
     private function matchGenre(string $genre): string
     {
-        // This would contain logic to match your system genre to eBay genre
-        // For now, we'll just return the genre as-is, assuming they match
-        return $genre;
+        $ranking = [];
+        $genrePattern = preg_quote($genre, '/');
+        $genrePattern = str_replace('/', ' ', $genrePattern);
+        $genrePattern = str_replace('\\ ', '|', $genrePattern);
+
+        // Replace double pipes with single pipe
+        while (strpos($genrePattern, '||') !== false) {
+            $genrePattern = str_replace('||', '|', $genrePattern);
+        }
+
+        foreach (self::GENRE_TO_STORE_CATEGORY as $key => $value) {
+            $matches = [];
+            preg_match_all("/$genrePattern/i", $key, $matches);
+            $ranking[$key] = count($matches[0]);
+        }
+
+        // Sort by ranking (descending) and get the first key
+        arsort($ranking);
+        reset($ranking);
+        return key($ranking);
     }
-    
+
     /**
      * Get the eBay category ID for the item
      *
@@ -186,22 +203,22 @@ class CategoryResolver
     {
         list($firstPart, $secondPart) = $this->getCategorySearchParts();
         $categoryKey = "{$firstPart}-{$secondPart}";
-        
+
         $this->logger->debug("Searching for eBay category with key: {$categoryKey}");
-        
+
         // Default to Others-Others if not found
         $categoryId = self::CATEGORY_MAPPING['Others-Others'];
-        
+
         if (isset(self::CATEGORY_MAPPING[$categoryKey])) {
             $categoryId = self::CATEGORY_MAPPING[$categoryKey];
             $this->logger->debug("Found eBay category ID: {$categoryId} for key: {$categoryKey}");
         } else {
-            $this->logger->debug("No specific eBay category found for {$categoryKey}, using default: {$categoryId}");
+            $this->logger->warning("No specific eBay category found for {$categoryKey}, using default: {$categoryId}");
         }
-        
+
         return $categoryId;
     }
-    
+
     /**
      * Get the eBay store category ID for the item
      *
@@ -210,41 +227,41 @@ class CategoryResolver
     public function getStoreCategoryId(): ?string
     {
         list($firstPart, $secondPart) = $this->getCategorySearchParts();
-        
+
         // Map genre to store category
         if ($firstPart == 'CDs' || $firstPart == 'Vinyl') {
             if (isset(self::GENRE_TO_STORE_CATEGORY[$secondPart])) {
                 $secondPart = self::GENRE_TO_STORE_CATEGORY[$secondPart];
             }
         }
-        
+
         // Special cases based on group_id
         if ($firstPart == 'Others') {
             $secondPart = 'Others';
         }
-        
+
         if ($firstPart == 'Clothes') {
             $secondPart = 'Merchandise';
         }
-        
+
         $storeKey = "{$firstPart}-{$secondPart}";
         $this->logger->debug("Searching for store category with key: {$storeKey}");
-        
+
         // Default to Others-Others
         $storeCategoryId = self::STORE_CATEGORY_MAPPING['Others-Others'];
-        
+
         if (isset(self::STORE_CATEGORY_MAPPING[$storeKey])) {
             $storeCategoryId = self::STORE_CATEGORY_MAPPING[$storeKey];
             $this->logger->debug("Found store category ID: {$storeCategoryId} for key: {$storeKey}");
         }
-        
+
         // Special case for SCR and PM items
         $itemId = $this->scrItem->getId();
         if (strpos($itemId, 'SCR') === 0 || strpos($itemId, 'PM') === 0) {
             $storeCategoryId = self::STORE_CATEGORY_MAPPING['SCR-Releases'];
             $this->logger->debug("Item ID {$itemId} is SCR/PM release, using special store category: {$storeCategoryId}");
         }
-        
+
         return (string)$storeCategoryId;
     }
 }

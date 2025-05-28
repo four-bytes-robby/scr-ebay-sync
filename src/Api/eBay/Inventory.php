@@ -71,13 +71,17 @@ class Inventory extends ApiClient
 
     /**
      * Update availability of an inventory item
-     *
+     * DEPRECATED: Verwende stattdessen createOrUpdateInventoryItem mit shipToLocationAvailability
+     * 
      * @param string $sku The SKU of the item
      * @param int $quantity The new quantity
      * @return array Response data
+     * @deprecated Verwende createOrUpdateInventoryItem() mit availability.shipToLocationAvailability.quantity
      */
     public function updateInventoryItemAvailability(string $sku, int $quantity): array
     {
+        $this->logger->warning("updateInventoryItemAvailability ist deprecated. Verwende createOrUpdateInventoryItem stattdessen.");
+        
         $data = [
             'availability' => [
                 'shipToLocationAvailability' => [
@@ -86,7 +90,7 @@ class Inventory extends ApiClient
             ]
         ];
         
-        return $this->put("/sell/inventory/{$this->apiVersion}/inventory_item/{$sku}/availability", $data);
+        return $this->createOrUpdateInventoryItem($sku, $data);
     }
 
     /**
@@ -227,13 +231,16 @@ class Inventory extends ApiClient
 
     /**
      * Update the quantity of an item in eBay inventory
+     * DEPRECATED: Verwende createOrUpdateInventoryItem stattdessen
      *
      * @param string $sku The SKU of the item
      * @param int $quantity The new quantity
      * @return array Response data
+     * @deprecated Verwende createOrUpdateInventoryItem() mit availability.shipToLocationAvailability.quantity
      */
     public function updateQuantity(string $sku, int $quantity): array
     {
+        $this->logger->warning("updateQuantity ist deprecated. Verwende createOrUpdateInventoryItem stattdessen.");
         return $this->updateInventoryItemAvailability($sku, $quantity);
     }
 

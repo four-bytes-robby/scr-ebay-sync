@@ -59,7 +59,17 @@ class SyncService
         bool $importOrders = true,
         bool $updateOrderStatus = true
     ): array {
-        $this->logger->info("Starting eBay sync process");
+        $startTime = microtime(true);
+        $this->logger->info("==================== eBay SYNC STARTED ====================", [
+            'enabled_tasks' => [
+                'addNewItems' => $addNewItems,
+                'updateItems' => $updateItems,
+                'updateQuantities' => $updateQuantities,
+                'endListings' => $endListings,
+                'importOrders' => $importOrders,
+                'updateOrderStatus' => $updateOrderStatus
+            ]
+        ]);
         
         $results = [
             'newItems' => 0,
@@ -98,7 +108,13 @@ class SyncService
             $results['updatedOrderStatus'] = $this->orderService->updateOrderStatus();
         }
         
-        $this->logger->info("eBay sync process completed", $results);
+        $endTime = microtime(true);
+        $duration = round($endTime - $startTime, 2);
+        
+        $this->logger->info("==================== eBay SYNC COMPLETED ====================", array_merge($results, [
+            'duration_seconds' => $duration,
+            'total_operations' => array_sum($results)
+        ]));
         
         return $results;
     }
@@ -173,11 +189,11 @@ class SyncService
         foreach ($updateItems as $updateItem) {
             try {
                 // Update the listing
-                $success = $this->inventoryService->updateListing($updateItem);
+                $listingId = $this->inventoryService->updateListing($updateItem);
                 
-                if ($success) {
+                if ($listingId) {
                     $updateCount++;
-                    $this->logger->info("Successfully updated eBay listing {$updateItem->getEbayItemId()}");
+                    // Log wird bereits im EbayInventoryService ausgegeben - hier entfernen
                 }
             } catch (Exception $e) {
                 $this->logger->error(sprintf(
@@ -222,7 +238,7 @@ class SyncService
                 
                 if ($success) {
                     $updateCount++;
-                    $this->logger->info("Successfully updated quantity for eBay listing {$item->getEbayItemId()}");
+                    // Log wird bereits im EbayInventoryService ausgegeben - hier entfernen
                 }
             } catch (Exception $e) {
                 $this->logger->error(sprintf(
@@ -267,7 +283,7 @@ class SyncService
                 
                 if ($success) {
                     $endCount++;
-                    $this->logger->info("Successfully ended eBay listing {$item->getEbayItemId()}");
+                    // Log wird bereits im EbayInventoryService ausgegeben - hier entfernen
                 }
             } catch (Exception $e) {
                 $this->logger->error(sprintf(

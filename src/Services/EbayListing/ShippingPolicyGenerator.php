@@ -3,6 +3,7 @@
 namespace Four\ScrEbaySync\Services\EbayListing;
 
 use Four\ScrEbaySync\Entity\ScrItem;
+use Four\ScrEbaySync\Services\EbayListing\ShippingServiceLookup;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
@@ -54,56 +55,63 @@ class ShippingPolicyGenerator
      */
     public function getFulfillmentPolicy(): array
     {
-        $shippingOptions = [
-            [
-                'costType' => 'FLAT_RATE',
-                'optionType' => 'DOMESTIC',
-                'shippingServices' => [
-                    [
-                        'shippingServiceCode' => 'DE_DHLPaket',
-                        'shippingCost' => [
-                            'currency' => 'EUR',
-                            'value' => (string)$this->getDomesticShippingCost()
-                        ],
-                        'additionalShippingCost' => [
-                            'currency' => 'EUR',
-                            'value' => '0.00'
-                        ],
-                        'shippingServiceType' => 'DOMESTIC_STANDARD'
+        // Für leichte Artikel verwende spezifische Versandrichtlinie
+        if ($this->isBigItem()) {
+            return [
+                'fulfillmentPolicyId' => 'DEFAULT_FULFILLMENT_POLICY'
+            ];
+        }
+
+        // Für leichte Artikel (CDs, kleine Items) - vollständige Versandrichtlinie definieren
+        return [
+            'shippingOptions' => [
+                [
+                    'costType' => 'FLAT_RATE',
+                    'optionType' => 'DOMESTIC',
+                    'shippingServices' => [
+                        [
+                            'shippingServiceCode' => 'DE_StandardDelivery',
+                            'shippingCost' => [
+                                'currency' => 'EUR',
+                                'value' => (string)$this->getDomesticShippingCost()
+                            ],
+                            'additionalShippingCost' => [
+                                'currency' => 'EUR',
+                                'value' => '0.00'
+                            ]
+                        ]
+                    ]
+                ],
+                [
+                    'costType' => 'FLAT_RATE',
+                    'optionType' => 'INTERNATIONAL',
+                    'shippingServices' => [
+                        [
+                            'shippingServiceCode' => 'DE_InternationalStandardDelivery',
+                            'shippingCost' => [
+                                'currency' => 'EUR',
+                                'value' => (string)$this->getInternationalShippingCost()
+                            ],
+                            'additionalShippingCost' => [
+                                'currency' => 'EUR',
+                                'value' => '0.00'
+                            ],
+                            'shipToLocations' => [
+                                'regionIncluded' => [
+                                    [
+                                        'regionName' => 'WORLDWIDE'
+                                    ]
+                                ]
+                            ]
+                        ]
                     ]
                 ]
             ],
-            [
-                'costType' => 'FLAT_RATE',
-                'optionType' => 'INTERNATIONAL',
-                'shippingServices' => [
-                    [
-                        'shippingServiceCode' => 'DE_DHLPaketInternational',
-                        'shippingCost' => [
-                            'currency' => 'EUR',
-                            'value' => (string)$this->getInternationalShippingCost()
-                        ],
-                        'additionalShippingCost' => [
-                            'currency' => 'EUR',
-                            'value' => '0.00'
-                        ],
-                        'shipToLocations' => [
-                            'regionIncluded' => [
-                                [
-                                    'regionName' => 'WORLDWIDE'
-                                ]
-                            ]
-                        ],
-                        'shippingServiceType' => 'INTERNATIONAL_STANDARD'
-                    ]
-                ]
+            'globalShipping' => false,
+            'handlingTime' => [
+                'value' => $this->getHandlingTime(),
+                'unit' => 'DAY'
             ]
-        ];
-        
-        return [
-            'fulfillmentPolicyId' => 'DEFAULT_FULFILLMENT_POLICY',
-            'shippingOptions' => $shippingOptions,
-            'handlingTime' => $this->getHandlingTime()
         ];
     }
     

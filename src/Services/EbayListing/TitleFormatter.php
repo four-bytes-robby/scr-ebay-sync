@@ -156,17 +156,20 @@ class TitleFormatter
      * Shorten text by number of words
      *
      * @param string $text The text to shorten
-     * @param int $maxWords Maximum number of words
+     * @param int $maxLength Maximum length
      * @return string The shortened text
      */
-    public function shortenByWords(string $text, int $maxWords): string
+    public function shortenByWords(string $text, int $maxLength): string
     {
         $words = preg_split('/\s+/', $text);
-        
-        if (count($words) <= $maxWords) {
-            return $text;
+        $newText = $shortenedText = "";
+        while (strlen($newText) < $maxLength && count($words) > 0) {
+            $shortenedText = $newText;
+            $newText .= array_shift($words) . " ";
         }
-        
-        return implode(' ', array_slice($words, 0, $maxWords)) . '...';
+        if (strlen($newText) > $maxLength) {
+            $newText = $shortenedText . "...";
+        }
+        return $newText;
     }
 }

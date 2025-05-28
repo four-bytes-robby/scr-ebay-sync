@@ -48,23 +48,21 @@ class OrderStatusService
         $this->logger->info("Starting eBay order status updates");
         
         try {
-            // Update orders marked as paid
-            $paidCount = $this->updatePaidOrders();
-            
             // Update orders marked as shipped
             $shippedCount = $this->updateShippedOrders();
             
             // Update orders marked as canceled
             $canceledCount = $this->updateCanceledOrders();
             
+            $totalUpdated = $shippedCount + $canceledCount;
+            
             $this->logger->info("Completed eBay order status updates", [
-                'paid_orders' => $paidCount,
                 'shipped_orders' => $shippedCount,
                 'canceled_orders' => $canceledCount,
-                'total_updated' => $paidCount + $shippedCount + $canceledCount
+                'total_updated' => $totalUpdated
             ]);
             
-            return $paidCount + $shippedCount + $canceledCount;
+            return $totalUpdated;
         } catch (\Exception $e) {
             $this->logger->error("Exception updating order statuses: " . $e->getMessage());
             return 0;
@@ -72,75 +70,31 @@ class OrderStatusService
     }
     
     /**
-     * Update orders marked as paid
-     * 
-     * Finds transactions that are not marked as paid but have invoices with payment dates
-     *
-     * @return int Number of updated orders
-     */
-    private function updatePaidOrders(): int
-    {
-        $qb = $this->entityManager->createQueryBuilder();
-        $transactions = $qb->select('t')
-            ->from(EbayTransaction::class, 't')
-            ->join(ScrInvoice::class, 'i', 'WITH', 't.invoice_id = i.id')
-            ->where('t.paid = 0')
-            ->andWhere('i.paydat IS NOT NULL')
-            ->getQuery()
-            ->getResult();
-            
-        $count = 0;
-        
-        foreach ($transactions as $transaction) {
-            try {
-                // Mark as paid on eBay
-                $this->fulfillmentApi->markOrderAsPaid($transaction->getEbayOrderId());
-                
-                // Update transaction
-                $transaction->setPaid(1);
-                $transaction->setUpdated(new \DateTime());
-                $this->entityManager->persist($transaction);
-                
-                $count++;
-                
-                $this->logger->info("Marked order as paid", [
-                    'ebay_order_id' => $transaction->getEbayOrderId(),
-                    'invoice_id' => $transaction->getInvoiceId()
-                ]);
-                
-            } catch (\Exception $e) {
-                $this->logger->error("Error marking order as paid", [
-                    'ebay_order_id' => $transaction->getEbayOrderId(),
-                    'error' => $e->getMessage()
-                ]);
-            }
-        }
-        
-        if ($count > 0) {
-            $this->entityManager->flush();
-        }
-        
-        return $count;
-    }
-    
-    /**
      * Update orders marked as shipped
      * 
-     * Finds transactions that need shipping updates based on SCR invoice dispatch dates.
-     * Uses advanced carrier mapping from shipper field and tracking number patterns.
+     * Finds transactions that need shipping updates based on SCR invoice changes.
+     * Uses invoice.updated > transaction.updated to detect changes.
      *
      * @return int Number of updated orders
      */
     private function updateShippedOrders(): int
     {
+        // Find transactions where invoice was updated after transaction
         $qb = $this->entityManager->createQueryBuilder();
         $transactions = $qb->select('t')
             ->from(EbayTransaction::class, 't')
             ->join(ScrInvoice::class, 'i', 'WITH', 't.invoice_id = i.id')
-            ->where('t.shipped = 0 OR t.ebayTracking != i.tracking')
-            ->andWhere('i.dispatchdat IS NOT NULL')
+            ->where('i.dispatchdat IS NOT NULL')
             ->andWhere('i.tracking IS NOT NULL')
             ->andWhere("i.tracking != ''")
+            ->andWhere($qb->expr()->orX(
+                // Never updated transaction
+                't.updated IS NULL',
+                // Invoice updated after last transaction update
+                'i.updated > t.updated',
+                // Tracking changed
+                't.ebayTracking != i.tracking OR t.ebayTracking IS NULL'
+            ))
             ->getQuery()
             ->getResult();
             
@@ -189,15 +143,17 @@ class OrderStatusService
                     'dispatch_date' => $invoice->getDispatchdat()->format('Y-m-d H:i:s')
                 ]);
                 
-                // Mark as shipped on eBay
-                $this->fulfillmentApi->markAsShipped(
-                    $transaction->getEbayOrderId(),
-                    $trackingNumber,
-                    $ebayCarrier,
-                    $invoice->getDispatchdat()
-                );
+                // Mark as shipped on eBay - only if newer than 90 days
+                if ($invoice->getDispatchdat() > new \DateTime('-90 days')) {
+                    $this->fulfillmentApi->markAsShipped(
+                        $transaction->getEbayOrderId(),
+                        $trackingNumber,
+                        $ebayCarrier,
+                        $invoice->getDispatchdat()
+                    );
+                }
                 
-                // Update transaction
+                // Update transaction with new timestamp
                 $transaction->setShipped(1);
                 $transaction->setEbayTracking($trackingNumber);
                 $transaction->setUpdated(new \DateTime());
@@ -218,6 +174,10 @@ class OrderStatusService
                     'tracking_number' => $invoice->getTracking() ?? 'N/A',
                     'shipper' => $invoice->getShipper() ?? 'N/A'
                 ]);
+                
+                // Force update timestamp even on failure to prevent infinite retries
+                $transaction->setUpdated(new \DateTime());
+                $this->entityManager->persist($transaction);
             }
         }
         
@@ -231,18 +191,26 @@ class OrderStatusService
     /**
      * Update orders marked as canceled
      * 
-     * Finds transactions that should be canceled based on closed SCR invoices
+     * Finds transactions that need cancellation based on SCR invoice changes.
+     * Uses invoice.updated > transaction.updated to detect changes.
      *
      * @return int Number of updated orders
      */
     private function updateCanceledOrders(): int
     {
+        // Find transactions where invoice was updated after transaction
         $qb = $this->entityManager->createQueryBuilder();
         $transactions = $qb->select('t')
             ->from(EbayTransaction::class, 't')
             ->join(ScrInvoice::class, 'i', 'WITH', 't.invoice_id = i.id')
             ->where('t.canceled = 0')
             ->andWhere('i.closed = 1')
+            ->andWhere($qb->expr()->orX(
+                // Never updated transaction
+                't.updated IS NULL',
+                // Invoice updated after last transaction update
+                'i.updated > t.updated'
+            ))
             ->getQuery()
             ->getResult();
             
@@ -288,7 +256,7 @@ class OrderStatusService
                     ]);
                 }
                 
-                // Update transaction status locally regardless of eBay status
+                // Update transaction status locally with new timestamp
                 $transaction->setCanceled(1);
                 $transaction->setUpdated(new \DateTime());
                 $this->entityManager->persist($transaction);
@@ -300,6 +268,10 @@ class OrderStatusService
                     'ebay_order_id' => $transaction->getEbayOrderId(),
                     'error' => $e->getMessage()
                 ]);
+                
+                // Update timestamp even on failure to prevent infinite retries
+                $transaction->setUpdated(new \DateTime());
+                $this->entityManager->persist($transaction);
             }
         }
         

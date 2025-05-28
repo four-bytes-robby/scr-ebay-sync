@@ -73,10 +73,8 @@ class TransactionProcessor
             $transaction->setShipped(0);
             $transaction->setCanceled(0);
             
-            // Created/updated
-            $now = new \DateTime();
-            $transaction->setCreated($now);
-            $transaction->setUpdated($now);
+            // Created/updated timestamps are handled by entity lifecycle callbacks
+            // No need to set them manually
             
             // Save transaction
             $this->entityManager->persist($transaction);

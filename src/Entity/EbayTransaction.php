@@ -7,6 +7,7 @@ use Four\ScrEbaySync\Repository\EbayTransactionRepository;
 
 #[ORM\Entity(repositoryClass: EbayTransactionRepository::class)]
 #[ORM\Table(name: "ebay_transactions")]
+#[ORM\HasLifecycleCallbacks]
 class EbayTransaction
 {
     #[ORM\Id]
@@ -57,6 +58,21 @@ class EbayTransaction
 
     #[ORM\Column(type: "datetime")]
     private \DateTime $updated;
+
+    /**
+     * Auto-update the updated timestamp on entity changes
+     */
+    #[ORM\PreUpdate]
+    #[ORM\PrePersist]
+    public function updateTimestamp(): void
+    {
+        $this->updated = new \DateTime();
+        
+        // Set created timestamp only when creating new entities
+        if (!isset($this->created)) {
+            $this->created = new \DateTime();
+        }
+    }
 
     // Getters and setters
     public function getEbayTransactionId(): string

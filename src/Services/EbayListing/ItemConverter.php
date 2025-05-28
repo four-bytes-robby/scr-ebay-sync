@@ -70,17 +70,12 @@ class ItemConverter
             ]
         ];
 
-        // Add EAN/ISBN if available
+        // Add EAN field (required by eBay)
         if ($this->scrItem->getEan() > 0) {
-            $ean = (string)$this->scrItem->getEan();
-            if (strlen($ean) === 13) {
-                $inventoryItem['product']['identifiers'] = [
-                    [
-                        'type' => $this->isBook() ? 'ISBN' : 'EAN',
-                        'value' => $ean
-                    ]
-                ];
-            }
+            $inventoryItem['product']['ean'] = [str_pad($this->scrItem->getEan(), 13, '0', STR_PAD_LEFT)];
+        } else {
+            // Generate fake EAN if no EAN exists
+            $inventoryItem['product']['ean'] = [$this->generateFakeEan($this->scrItem->getId())];
         }
 
         return $inventoryItem;
@@ -109,7 +104,7 @@ class ItemConverter
                 'paymentPolicy' => [
                     'paymentPolicyId' => 'DEFAULT_PAYMENT_POLICY'
                 ],
-                'fulfillmentPolicy' => $this->shippingPolicy->getFulfillmentPolicy()
+                'fulfillmentPolicyId' => $this->shippingPolicy->isBigItem() ? '254882671020' : '255300405020',
             ],
             'pricingSummary' => [
                 'price' => [
@@ -169,12 +164,20 @@ class ItemConverter
     
     /**
      * Get the maximum quantity for eBay
+     * Gibt 0 zurück wenn das Item nicht verfügbar ist (wird dann gelöscht)
      *
-     * @return int The quantity (max 3)
+     * @return int The quantity (max 3, oder 0 wenn unavailable)
      */
     public function getQuantity(): int
     {
-        return min($this->scrItem->getQuantity(), 3);
+        $quantity = $this->scrItem->getQuantity();
+        
+        // Wenn quantity 0 oder negativ, gib 0 zurück (Item wird gelöscht)
+        if ($quantity <= 0) {
+            return 0;
+        }
+        
+        return min($quantity, 3);
     }
 
     /**
@@ -251,5 +254,32 @@ class ItemConverter
         return strpos($this->scrItem->getName(), 'BOOK)') !== false || 
                $this->scrItem->getGroupId() == 'BOOK' ||
                $this->titleFormatter->getFormat() == 'Book';
+    }
+    
+    /**
+     * Generate a fake EAN from item ID for eBay compatibility
+     * Creates a valid checksum EAN-13 starting with 2 (internal use)
+     *
+     * @param string $itemId Item ID
+     * @return string 13-digit EAN
+     */
+    private function generateFakeEan(string $itemId): string
+    {
+        // Start with 2 (indicates internal/store use)
+        $ean = '2';
+        
+        // Take numeric characters from item ID and pad
+        $numericId = preg_replace('/[^0-9]/', '', $itemId);
+        $numericId = str_pad($numericId, 11, '0', STR_PAD_RIGHT);
+        $ean .= substr($numericId, 0, 11);
+        
+        // Calculate checksum
+        $checksum = 0;
+        for ($i = 0; $i < 12; $i++) {
+            $checksum += $ean[$i] * (($i % 2 === 0) ? 1 : 3);
+        }
+        $checksum = (10 - ($checksum % 10)) % 10;
+        
+        return $ean . $checksum;
     }
 }
