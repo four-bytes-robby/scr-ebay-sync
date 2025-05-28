@@ -127,7 +127,6 @@ class EbayTransactionRepository extends EntityRepository
             
         return $qb->getQuery()->getResult();
     }
-}
     
     /**
      * Find transactions that were recently updated (within specified hours)
