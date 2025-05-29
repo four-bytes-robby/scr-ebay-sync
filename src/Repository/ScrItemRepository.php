@@ -185,7 +185,7 @@ class ScrItemRepository extends EntityRepository
         return $qb->andWhere($qb->expr()->orX(
             'i.updated > e.updated',
             'ABS(i.price - e.price) >= 0.01',
-            'MAX(i.quantity, 3) <> e.quantity'))
+            '(CASE WHEN i.quantity > 3 THEN 3 ELSE i.quantity END) <> e.quantity'))
             ->orderBy('i.updated', 'ASC') // Älteste Änderungen zuerst
             ->setMaxResults($limit)
             ->getQuery()
