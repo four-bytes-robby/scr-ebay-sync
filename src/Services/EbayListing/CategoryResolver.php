@@ -222,46 +222,41 @@ class CategoryResolver
     /**
      * Get the eBay store category ID for the item
      *
-     * @return string|null The store category ID or null if not mapped
+     * @return string[] The store category ID or null if not mapped
      */
-    public function getStoreCategoryId(): ?string
+    public function getStoreCategoryNames(): array
     {
         list($firstPart, $secondPart) = $this->getCategorySearchParts();
 
-        // Map genre to store category
+        // Special mapping
+        $firstPartSpecial = [
+            "Others" => "Sonstiges",
+            "Clothes" => "Merchandise",
+
+        ];
+        if (isset($firstPartSpecial[$firstPart])) {
+            $firstPart = $firstPartSpecial[$firstPart];
+        }
+
+        // First part, general category
+        $paths = [ '/' . $firstPart ];
+
+        // Map second part for genre
         if ($firstPart == 'CDs' || $firstPart == 'Vinyl') {
             if (isset(self::GENRE_TO_STORE_CATEGORY[$secondPart])) {
-                $secondPart = self::GENRE_TO_STORE_CATEGORY[$secondPart];
+                $paths[0] = $paths[0] . '/' . self::GENRE_TO_STORE_CATEGORY[$secondPart];
             }
         }
 
-        // Special cases based on group_id
-        if ($firstPart == 'Others') {
-            $secondPart = 'Others';
-        }
-
-        if ($firstPart == 'Clothes') {
-            $secondPart = 'Merchandise';
-        }
-
-        $storeKey = "{$firstPart}-{$secondPart}";
-        $this->logger->debug("Searching for store category with key: {$storeKey}");
-
-        // Default to Others-Others
-        $storeCategoryId = self::STORE_CATEGORY_MAPPING['Others-Others'];
-
-        if (isset(self::STORE_CATEGORY_MAPPING[$storeKey])) {
-            $storeCategoryId = self::STORE_CATEGORY_MAPPING[$storeKey];
-            $this->logger->debug("Found store category ID: {$storeCategoryId} for key: {$storeKey}");
-        }
-
-        // Special case for SCR and PM items
+        // Special case for SCR, CKR and PM items
         $itemId = $this->scrItem->getId();
-        if (strpos($itemId, 'SCR') === 0 || strpos($itemId, 'PM') === 0) {
-            $storeCategoryId = self::STORE_CATEGORY_MAPPING['SCR-Releases'];
-            $this->logger->debug("Item ID {$itemId} is SCR/PM release, using special store category: {$storeCategoryId}");
+        if (preg_match('/^(SCR|PM|CKR).+/i', $itemId)) {
+            $paths[] = [ '/SCR-Releases' ];
         }
 
-        return (string)$storeCategoryId;
+        // Log store paths
+        $this->logger->debug("Store paths", $paths);
+
+        return $paths;
     }
 }

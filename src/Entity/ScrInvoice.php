@@ -724,4 +724,14 @@ class ScrInvoice
         // For now, we'll just return a placeholder implementation
         return 0.0;
     }
+
+    public function getUpdated(): DateTime
+    {
+        return $this->updated;
+    }
+
+    public function setUpdated(DateTime $updated): void
+    {
+        $this->updated = $updated;
+    }
 }

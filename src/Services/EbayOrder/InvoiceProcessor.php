@@ -2,6 +2,7 @@
 // src/Services/EbayOrder/InvoiceProcessor.php
 namespace Four\ScrEbaySync\Services\EbayOrder;
 
+use DateTime;
 use Four\ScrEbaySync\Entity\ScrInvoice;
 use Four\ScrEbaySync\Entity\ScrCustomer;
 use Four\ScrEbaySync\Entity\ScrCountry;
@@ -48,7 +49,7 @@ class InvoiceProcessor
         $invoice = new ScrInvoice();
         
         // Set invoice number based on year + sequence
-        $year = (new \DateTime())->format('Y');
+        $year = new DateTime()->format('Y');
         $nextId = $this->getNextInvoiceId($year);
         $invoice->setId($nextId);
         
@@ -59,12 +60,12 @@ class InvoiceProcessor
         $invoice->setLexofficeId('');
         
         // Dates
-        $receivedat = new \DateTime($order['creationDate']);
+        $receivedat = new DateTime($order['creationDate']);
         $invoice->setReceivedat($receivedat);
-        
+
         $paydat = null;
         if (isset($order['paymentSummary']['payments'][0]['paymentDate'])) {
-            $paydat = new \DateTime($order['paymentSummary']['payments'][0]['paymentDate']);
+            $paydat = new DateTime($order['paymentSummary']['payments'][0]['paymentDate']);
         }
         $invoice->setPaydat($paydat);
         
@@ -131,7 +132,13 @@ class InvoiceProcessor
         if (isset($order['pricingSummary']['deliveryCost']['value'])) {
             $shippingCost = (float)$order['pricingSummary']['deliveryCost']['value'];
         }
+        if (isset($order['pricingSummary']['deliveryDiscount']['value'])) {
+            $shippingCost = (float)$order['pricingSummary']['deliveryCost']['value'];
+        }
         $invoice->setPostage($shippingCost);
+
+        // Updated
+        $invoice->setUpdated(new DateTime());
         
         // Save invoice
         $this->entityManager->persist($invoice);

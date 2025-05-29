@@ -2,6 +2,7 @@
 // src/Services/EbayOrder/TransactionProcessor.php
 namespace Four\ScrEbaySync\Services\EbayOrder;
 
+use DateTime;
 use Four\ScrEbaySync\Entity\ScrInvoice;
 use Four\ScrEbaySync\Entity\EbayTransaction;
 use Doctrine\ORM\EntityManagerInterface;
@@ -57,7 +58,7 @@ class TransactionProcessor
             
             // Set transaction data
             $transaction->setEbayTransactionId($lineItem['lineItemId']);
-            $transaction->setEbayCreated(new \DateTime($order['creationDate']));
+            $transaction->setEbayCreated(new DateTime($order['creationDate']));
             $transaction->setEbayOrderId($order['orderId']);
             $transaction->setEbayOrderLineItemId($lineItem['lineItemId']);
             $transaction->setEbayItemId($lineItem['legacyItemId'] ?? '');
@@ -67,7 +68,8 @@ class TransactionProcessor
             $transaction->setInvoiceId($invoice->getId());
             $transaction->setQuantity($lineItem['quantity']);
             $transaction->setItemId($sku);
-            
+            $transaction->setUpdated(new DateTime());
+
             // Statuses
             $transaction->setPaid($invoice->getPaydat() !== null ? 1 : 0);
             $transaction->setShipped(0);

@@ -181,9 +181,12 @@ class ScrItemRepository extends EntityRepository
      */
     public function findUpdatedItems(int $limit = 50): array
     {
-        return $this->createEbayOnlineItemsQueryBuilder()
-            ->andWhere('(i.updated > e.updated) OR (ABS(i.price - e.price) >= 0.01)')
-            ->orderBy('i.updated', 'DESC') // Neueste Änderungen zuerst
+        $qb = $this->createEbayOnlineItemsQueryBuilder();
+        return $qb->andWhere($qb->expr()->orX(
+            'i.updated > e.updated',
+            'ABS(i.price - e.price) >= 0.01',
+            'MAX(i.quantity, 3) <> e.quantity'))
+            ->orderBy('i.updated', 'ASC') // Älteste Änderungen zuerst
             ->setMaxResults($limit)
             ->getQuery()
             ->getResult();

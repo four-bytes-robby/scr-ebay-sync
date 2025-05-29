@@ -127,8 +127,8 @@ class EbayInventoryService
         } catch (Exception $e) {
             $this->logger->error("Exception creating eBay listing for item {$scrItem->getId()}: " . $e->getMessage());
             $this->logger->error($e->getTraceAsString());
-            return null;
         }
+        return null;
     }
     
     /**

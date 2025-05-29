@@ -11,12 +11,8 @@ use Monolog\Logger;
  */
 class ItemConverter
 {
-    private ScrItem $scrItem;
-    private EntityManagerInterface $entityManager;
-    private Logger $logger;
     private TitleFormatter $titleFormatter;
     private CategoryResolver $categoryResolver;
-    private ShippingPolicyGenerator $shippingPolicy;
     private DescriptionFormatter $descriptionFormatter;
     private ImageService $imageService;
     
@@ -26,18 +22,15 @@ class ItemConverter
      * @param Logger|null $logger Optional logger
      */
     public function __construct(
-        ScrItem $scrItem,
+        private readonly ScrItem                $scrItem,
         EntityManagerInterface $entityManager,
-        ?Logger $logger = null
+        private ?Logger                         $logger = null
     ) {
-        $this->scrItem = $scrItem;
-        $this->entityManager = $entityManager;
-        $this->logger = $logger ?? new Logger('item_converter');
+        $this->logger = $this->logger ?? new Logger('item_converter');
         
         // Initialize helper services
         $this->titleFormatter = new TitleFormatter($scrItem);
         $this->categoryResolver = new CategoryResolver($scrItem, $entityManager);
-        $this->shippingPolicy = new ShippingPolicyGenerator($scrItem, $entityManager);
         $this->descriptionFormatter = new DescriptionFormatter($scrItem, $this->logger);
         $this->imageService = new ImageService($scrItem, $this->logger);
         
@@ -66,7 +59,7 @@ class ItemConverter
                 ]
             ],
             'packageWeightAndSize' => [
-                'packageType' => $this->shippingPolicy->isBigItem() ? 'PACKAGE_THICK_ENVELOPE' : 'LETTER'
+                'packageType' => $this->isBigItem() ? 'PARCEL_OR_PADDED_ENVELOPE' : 'PACKAGE_THICK_ENVELOPE'
             ]
         ];
 
@@ -104,7 +97,7 @@ class ItemConverter
                 'paymentPolicy' => [
                     'paymentPolicyId' => 'DEFAULT_PAYMENT_POLICY'
                 ],
-                'fulfillmentPolicyId' => $this->shippingPolicy->isBigItem() ? '254882671020' : '255300405020',
+                'fulfillmentPolicyId' => $this->isBigItem() ? '254882671020' : '255300405020',
             ],
             'pricingSummary' => [
                 'price' => [
@@ -118,11 +111,8 @@ class ItemConverter
             ]
         ];
 
-        // Add store category if available
-        $storeCategoryId = $this->categoryResolver->getStoreCategoryId();
-        if ($storeCategoryId) {
-            $offer['storeCategoryNames'] = [$storeCategoryId];
-        }
+        // Add store categories if available
+        $offer['storeCategoryNames'] = $this->categoryResolver->getStoreCategoryNames();
         return $offer;
     }
 
@@ -281,5 +271,119 @@ class ItemConverter
         $checksum = (10 - ($checksum % 10)) % 10;
         
         return $ean . $checksum;
+    }
+
+    /**
+     * @return bool
+     */
+    function isBigItem() : bool {
+        return $this->getPosWeightClass(
+            $this->scrItem->getName(),
+            $this->scrItem->getGroupId()) == "large";
+    }
+
+    /**
+     * Gibt die Gewichtsklasse (large, middle, small) zurÃ¼ck
+     * @param string $name
+     * @param string $category
+     * @return string
+     */
+    private function getPosWeightClass(string $name, string $category) : string {
+        $weight = $this->getPosWeight($name, $category);
+        if ($weight >= 0.8) return "large";
+        if ($weight >= 0.2) return "middle";
+        return "small";
+    }
+
+    /**
+     * @param string $name
+     * @param string $category
+     * @return float
+     */
+    private function getPosWeight(string $name, string $category) : float {
+        $posWeight = 0.1;
+        $format = $this->getFormat($name);
+        switch (strtolower($category)) {
+            case "vinyl":
+                // Vinyl-Gewichte
+                if (preg_match("/BOX/i", $format)) $posWeight = 0.9;
+                elseif (preg_match("/DLP/i", $format)) $posWeight = 0.6;
+                elseif (preg_match("/LP/i", $format)) $posWeight = 0.4;
+                elseif (preg_match("/(MLP|10)/i", $format)) $posWeight = 0.3;
+                elseif (preg_match("/(EP|7)/i", $format)) $posWeight = 0.12;
+                else $posWeight = 0.4;
+                if (preg_match("/BOOK/i", $format)) {
+                    $posWeight = 0.7;
+                }
+                if (preg_match("/BUNDLE/i", $format)) {
+                    $posWeight = 1;
+                }
+                break;
+            case "cds":
+            case "tapes":
+                // CD-Gewichte
+                if (preg_match("/BOX/i", $format)) $posWeight = 0.3;
+                elseif (preg_match("/(DCD|2|3)/i", $format)) $posWeight = 0.2;
+                if (preg_match("/BOOK/i", $format)) {
+                    $posWeight = 0.4;
+                }
+                if (preg_match("/BUNDLE/i", $format)) {
+                    $posWeight = 1;
+                }
+                break;
+            case "clothes":
+                // Kleidung
+                $posWeight = 0.2;
+                if (preg_match("/ZIP|JACKET/i", $format)) $posWeight = 0.4;
+                if (preg_match("/BEANIE/i", $format)) $posWeight = 0.2;
+                if (preg_match("/WRIST/i", $format)) $posWeight = 0.1;
+                break;
+            case "others":
+                $weights = [
+                    "BOOK" => 0.5,
+                    "BEANIE" => 0.2,
+                    "PUZZLE" => 0.3,
+                    "POSTER" => 0.2,
+                    "BAG" => 0.2,
+                    "TICKET" => 0.02,
+                    "COASTER" => 0.02,
+                    "MUG" => 0.35,
+                    "FANZINE" => 0.4,
+                    "CUP" => 0.2,
+                    "LANYARD" => 0.3,
+                    "METAL PIN" => 0.02,
+                    "BUTTON" => 0.02,
+                    "PATCH" => 0.05,
+                    "WRIST" => 0.1,
+                    "BUNDLE" => 0.3,
+                    "CARDS" => 0.15
+                ];
+                foreach ($weights as $search => $value) {
+                    if (preg_match("/$search/i", $format)) {
+                        $posWeight = $value;
+                    }
+                }
+                break;
+        }
+        return $posWeight;
+    }
+
+    /**
+     * Gibt das Format eines Artikels zurück als String
+     * @param string $name
+     * @return string
+     */
+    private function getFormat(string $name) : string {
+        $format = "";
+        $detail = "";
+        if (preg_match("/\(([^)]+)\)$/s", $name, $matches)) {
+            $format = mb_convert_case($matches[1], MB_CASE_UPPER);
+        }
+        if (preg_match("/\[([^]]+)]$/m", $name, $matches)) {
+            if ($matches[1] != '485') { // Sonderlogik Agrypnie - 16 485
+                $detail = mb_convert_case($matches[1], MB_CASE_UPPER) . " ";
+            }
+        }
+        return trim($detail . $format);
     }
 }

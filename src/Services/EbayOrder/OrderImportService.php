@@ -119,13 +119,13 @@ class OrderImportService
             
             // Start database transaction
             $this->entityManager->beginTransaction();
-            
+
             // Create or update customer
             $customer = $this->customerProcessor->createOrUpdateCustomer($order);
-            
+
             // Create invoice
             $invoice = $this->invoiceProcessor->createInvoice($order, $customer);
-            
+
             // Create invoice positions
             $this->itemProcessor->createInvoicePositions($order, $invoice);
             
