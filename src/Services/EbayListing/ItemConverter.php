@@ -58,9 +58,9 @@ class ItemConverter
                     'quantity' => $this->getQuantity()
                 ]
             ],
-            'packageWeightAndSize' => [
-                'packageType' => $this->isBigItem() ? 'PARCEL_OR_PADDED_ENVELOPE' : 'PACKAGE_THICK_ENVELOPE'
-            ]
+//            'packageWeightAndSize' => [
+//                'packageType' => $this->isBigItem() ? 'PARCEL_OR_PADDED_ENVELOPE' : 'PACKAGE_THICK_ENVELOPE'
+//            ]
         ];
 
         // Add EAN field (required by eBay)
@@ -279,7 +279,7 @@ class ItemConverter
     function isBigItem() : bool {
         return $this->getPosWeightClass(
             $this->scrItem->getName(),
-            $this->scrItem->getGroupId()) == "large";
+            $this->scrItem->getGroupId()) != "small";
     }
 
     /**

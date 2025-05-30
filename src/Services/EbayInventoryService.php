@@ -170,10 +170,15 @@ class EbayInventoryService
             
             $offer = $offerResponse['offers'][0];
             $offerId = $offer['offerId'];
-            
+
+
             // Update offer data
             $offerData = $itemConverter->createOffer();
-            
+
+            // Log inventory item and offer data at debug level
+            $this->logger->debug("Inventory item data: " . json_encode($inventoryItemData, JSON_PRETTY_PRINT));
+            $this->logger->debug("Offer data: " . json_encode($offerData, JSON_PRETTY_PRINT));
+
             // If offer not published yet, publish it instead of updating
 //            if (!isset($offer['listingId']) ||
 // empty($offer['listingId'])) {

@@ -130,10 +130,10 @@ class InvoiceProcessor
         // Shipping costs
         $shippingCost = 0;
         if (isset($order['pricingSummary']['deliveryCost']['value'])) {
-            $shippingCost = (float)$order['pricingSummary']['deliveryCost']['value'];
+            $shippingCost += (float)$order['pricingSummary']['deliveryCost']['value'];
         }
         if (isset($order['pricingSummary']['deliveryDiscount']['value'])) {
-            $shippingCost = (float)$order['pricingSummary']['deliveryCost']['value'];
+            $shippingCost -= (float)$order['pricingSummary']['deliveryDiscount']['value'];
         }
         $invoice->setPostage($shippingCost);
 

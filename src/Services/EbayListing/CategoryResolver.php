@@ -251,7 +251,7 @@ class CategoryResolver
         // Special case for SCR, CKR and PM items
         $itemId = $this->scrItem->getId();
         if (preg_match('/^(SCR|PM|CKR).+/i', $itemId)) {
-            $paths[] = [ '/SCR-Releases' ];
+            $paths[] = '/SCR-Releases';
         }
 
         // Log store paths
