@@ -10,7 +10,7 @@ use Four\ScrEbaySync\Entity\ScrItem;
 class TitleFormatter
 {
     private ScrItem $scrItem;
-    private const MAX_TITLE_LENGTH = 80;
+    private const int MAX_TITLE_LENGTH = 80;
     
     /**
      * @param ScrItem $scrItem The SCR item entity
@@ -29,7 +29,7 @@ class TitleFormatter
     {
         return trim($this->scrItem->getName());
     }
-    
+
     /**
      * Get the shortened title that fits eBay's character limit
      *
@@ -37,13 +37,7 @@ class TitleFormatter
      */
     public function getShortenedTitle(): string
     {
-        $title = $this->getTitle();
-        
-        if (strlen($title) <= self::MAX_TITLE_LENGTH) {
-            return $title;
-        }
-        
-        return substr($title, 0, self::MAX_TITLE_LENGTH - 3) . '...';
+        return $this->ShortenByWord($this->getTitle(), self::MAX_TITLE_LENGTH);
     }
     
     /**
@@ -151,25 +145,24 @@ class TitleFormatter
         $title = $this->getTitle();
         return strpos($title, 'BOOK)') !== false || $this->scrItem->getGroupId() == 'BOOK';
     }
-    
+
     /**
-     * Shorten text by number of words
-     *
-     * @param string $text The text to shorten
-     * @param int $maxLength Maximum length
-     * @return string The shortened text
+     * @param string $str
+     * @param int $maxLen
+     * @param string $ellipsis
+     * @return string
      */
-    public function shortenByWords(string $text, int $maxLength): string
+    public static function shortenByWord(string $str, int $maxLen, string $ellipsis = "…") : string
     {
-        $words = preg_split('/\s+/', $text);
-        $newText = $shortenedText = "";
-        while (strlen($newText) < $maxLength && count($words) > 0) {
-            $shortenedText = $newText;
-            $newText .= array_shift($words) . " ";
+        if (mb_strlen($str) <= $maxLen) {
+            return $str;
         }
-        if (strlen($newText) > $maxLength) {
-            $newText = $shortenedText . "...";
+        $ellipsisLength = mb_strlen($ellipsis);
+        if (preg_match("/^(.{1," . ($maxLen - $ellipsisLength) . "})[\s,;.–:].+$/su", $str, $matches)) {
+            $str = mb_trim($matches[1]);
+        } else {
+            $str = mb_trim(mb_substr($str, 0, $maxLen - $ellipsisLength));
         }
-        return $newText;
+        return $str . $ellipsis;
     }
 }

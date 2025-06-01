@@ -233,7 +233,7 @@ class EbayInventoryService
                 return $this->endListing($scrItem);
             }
             
-            // Korrekte Inventory Item Struktur für Bestandsaktualierung
+            // Korrekte Inventory Item Struktur für Bestandsaktualisierung
             $inventoryItemData = [
                 'availability' => [
                     'shipToLocationAvailability' => [
@@ -241,7 +241,9 @@ class EbayInventoryService
                     ]
                 ]
             ];
-            
+
+            //TODO: FEHLER BEIM BESTANDSUPDATE
+
             // Verwende die korrekte eBay Inventory API Methode
             $response = $this->inventoryApi->createOrUpdateInventoryItem($scrItem->getId(), $inventoryItemData);
             
@@ -254,6 +256,7 @@ class EbayInventoryService
                 $this->entityManager->flush();
                 
                 $this->logger->info("Successfully updated quantity to {$newQuantity} for item {$scrItem->getId()}");
+                print_r($response);
                 return true;
             } else {
                 $this->logger->error("eBay API call failed for quantity update of item {$scrItem->getId()}");
@@ -262,7 +265,6 @@ class EbayInventoryService
             
         } catch (Exception $e) {
             $this->logger->error("Exception updating quantity for item {$scrItem->getId()}: " . $e->getMessage());
-            
             // WICHTIG: Bei Exception NICHT das updated Feld setzen!
             // Das Item sollte beim nächsten Sync-Lauf erneut versucht werden
             

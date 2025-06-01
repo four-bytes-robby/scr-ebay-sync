@@ -11,6 +11,7 @@ use Monolog\Logger;
  */
 class ItemConverter
 {
+    const int ATTRIBUTE_MAX_LENGTH = 65;
     private TitleFormatter $titleFormatter;
     private CategoryResolver $categoryResolver;
     private DescriptionFormatter $descriptionFormatter;
@@ -124,15 +125,15 @@ class ItemConverter
     private function getAspects(): array
     {
         $aspects = [
-            'Interpret' => [$this->titleFormatter->shortenByWords($this->titleFormatter->getInterpret(), 65)],
-            'Musiktitel' => [$this->titleFormatter->shortenByWords($this->titleFormatter->getMusiktitel(), 65)],
+            'Interpret' => [$this->titleFormatter->shortenByWord($this->titleFormatter->getInterpret(), self::ATTRIBUTE_MAX_LENGTH)],
+            'Musiktitel' => [$this->titleFormatter->shortenByWord($this->titleFormatter->getMusiktitel(), self::ATTRIBUTE_MAX_LENGTH)],
             'Format' => [$this->titleFormatter->getFormat()]
         ];
         
         // Book-specific aspects
         if ($this->isBook()) {
-            $aspects['Autor'] = [$this->titleFormatter->shortenByWords($this->titleFormatter->getInterpret(), 65)];
-            $aspects['Buchtitel'] = [$this->titleFormatter->shortenByWords($this->titleFormatter->getMusiktitel(), 65)];
+            $aspects['Autor'] = [$this->titleFormatter->shortenByWord($this->titleFormatter->getInterpret(), self::ATTRIBUTE_MAX_LENGTH)];
+            $aspects['Buchtitel'] = [$this->titleFormatter->shortenByWord($this->titleFormatter->getMusiktitel(), self::ATTRIBUTE_MAX_LENGTH)];
             $aspects['Sprache'] = ['deutsch'];
         }
         

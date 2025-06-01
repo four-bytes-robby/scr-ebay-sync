@@ -106,7 +106,7 @@ abstract class ApiClient
             $response = $this->client->request($method, $endpoint, $options);
             $data = json_decode($response->getBody()->getContents(), true);
             
-            return $data ?: [];
+            return $data ?: [ 'statusCode' => $response->getStatusCode() ];
         } catch (GuzzleException $e) {
             $response = "";
             if ($e instanceof ClientException) {
