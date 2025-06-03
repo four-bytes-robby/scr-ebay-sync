@@ -186,7 +186,8 @@ class ScrItemRepository extends EntityRepository
             'i.updated > e.updated',
             'ABS(i.price - e.price) >= 0.01',
             '(CASE WHEN i.quantity > 3 THEN 3 ELSE i.quantity END) <> e.quantity'))
-            ->orderBy('i.updated', 'ASC') // Älteste Änderungen zuerst
+            ->andWhere('i.quantity > 0') // Only online
+            ->orderBy('i.updated', 'ASC') // Old changes first
             ->setMaxResults($limit)
             ->getQuery()
             ->getResult();

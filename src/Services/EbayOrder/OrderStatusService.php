@@ -2,6 +2,7 @@
 // src/Services/EbayOrder/OrderStatusService.php
 namespace Four\ScrEbaySync\Services\EbayOrder;
 
+use DateTime;
 use Four\ScrEbaySync\Api\eBay\Fulfillment;
 use Four\ScrEbaySync\Entity\ScrInvoice;
 use Four\ScrEbaySync\Entity\EbayTransaction;
@@ -144,7 +145,7 @@ class OrderStatusService
                 ]);
                 
                 // Mark as shipped on eBay - only if newer than 90 days
-                if ($invoice->getDispatchdat() > new \DateTime('-90 days')) {
+                if ($invoice->getDispatchdat() > new DateTime('-90 days')) {
                     $this->fulfillmentApi->markAsShipped(
                         $transaction->getEbayOrderId(),
                         $trackingNumber,
@@ -156,7 +157,7 @@ class OrderStatusService
                 // Update transaction with new timestamp
                 $transaction->setShipped(1);
                 $transaction->setEbayTracking($trackingNumber);
-                $transaction->setUpdated(new \DateTime());
+                $transaction->setUpdated(new DateTime());
                 $this->entityManager->persist($transaction);
                 
                 $count++;
@@ -176,7 +177,7 @@ class OrderStatusService
                 ]);
                 
                 // Force update timestamp even on failure to prevent infinite retries
-                $transaction->setUpdated(new \DateTime());
+                $transaction->setUpdated(new DateTime());
                 $this->entityManager->persist($transaction);
             }
         }
@@ -220,31 +221,26 @@ class OrderStatusService
             try {
                 // Check if order is within the 30-day cancellation window
                 $createdDate = $transaction->getEbayCreated();
-                $now = new \DateTime();
+                $now = new DateTime();
                 $daysDifference = $now->diff($createdDate)->days;
                 
                 if ($daysDifference <= 30) {
                     // Get order status from eBay
                     $order = $this->fulfillmentApi->getOrder($transaction->getEbayOrderId());
-                    
                     // Check if not already canceled
-                    if (!isset($order['cancelStatus']) || 
-                        !in_array($order['cancelStatus'], [
-                            'CANCEL_CLOSED_FOR_COMMITMENT',
-                            'CANCEL_CLOSED_NO_REFUND',
-                            'CANCEL_CLOSED_UNKNOWN_REFUND',
-                            'CANCEL_CLOSED_WITH_REFUND',
-                            'CANCEL_COMPLETE'
-                        ])) {
+                    $cancelStatus = $order['cancelStatus'] ?? [];
+                    $cancelState = $cancelStatus['cancelState'] ?? '';
+                    // If not already canceled
+                    if ($cancelState != 'CANCELED') {
                         // Cancel order on eBay
                         $this->fulfillmentApi->cancelOrder(
                             $transaction->getEbayOrderId(),
-                            'OUT_OF_STOCK'
+                            'BUYER_ASKED_CANCEL'
                         );
                         
                         $this->logger->info("Canceled order on eBay", [
                             'ebay_order_id' => $transaction->getEbayOrderId(),
-                            'reason' => 'OUT_OF_STOCK',
+                            'reason' => 'BUYER_ASKED_CANCEL',
                             'days_old' => $daysDifference
                         ]);
                     }
@@ -258,7 +254,7 @@ class OrderStatusService
                 
                 // Update transaction status locally with new timestamp
                 $transaction->setCanceled(1);
-                $transaction->setUpdated(new \DateTime());
+                $transaction->setUpdated(new DateTime());
                 $this->entityManager->persist($transaction);
                 
                 $count++;
@@ -270,7 +266,7 @@ class OrderStatusService
                 ]);
                 
                 // Update timestamp even on failure to prevent infinite retries
-                $transaction->setUpdated(new \DateTime());
+                $transaction->setUpdated(new DateTime());
                 $this->entityManager->persist($transaction);
             }
         }

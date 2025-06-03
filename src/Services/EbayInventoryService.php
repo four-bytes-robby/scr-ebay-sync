@@ -103,8 +103,7 @@ class EbayInventoryService
                 $existingOffers = $this->inventoryApi->getOffers($scrItem->getId());
                 if (!empty($existingOffers['offers'])) {
                     $offer = $existingOffers['offers'][0];
-                    $listingId = $offer['listingId'] ?? null;
-
+                    $listingId = $offer['listing']['listingId'] ?? null;
                     if ($listingId) {
                         // Save/update the eBay item in database
                         $this->saveEbayItem($scrItem, $listingId, $itemConverter->getQuantity(), $itemConverter->getPrice());
@@ -117,7 +116,6 @@ class EbayInventoryService
                             $this->logger->info("Found existing DB listing {$existingEbayItem->getEbayItemId()} for item {$scrItem->getId()}, skipping republish");
                             return $existingEbayItem->getEbayItemId();
                         }
-
                         $this->logger->warning("Offer exists but no listing ID found for item {$scrItem->getId()}, attempting update");
                         return $this->updateListing($scrItem);
                     }
