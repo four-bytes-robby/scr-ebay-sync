@@ -97,16 +97,25 @@ class EbayInventoryService
                     $this->logger->error("Failed to create eBay listing for item {$scrItem->getId()}: No listing ID in response", ['response' => $response]);
                     return null;
                 }
-            } catch (Exception $e) {
-                // Could not create offer, try to get existing offers for item
-                $this->logger->warning("Could not create offer, try to get existing offers for item {$scrItem->getId()}");
+            } catch (Exception) {
+                // Could not create, try to get listing  for item
+                $this->logger->warning("Could not create listing, try to get existing offers for item {$scrItem->getId()}");
                 $existingOffers = $this->inventoryApi->getOffers($scrItem->getId());
                 if (!empty($existingOffers['offers'])) {
                     $offer = $existingOffers['offers'][0];
+                    $offerId = $offer['offerId'];
                     $listingId = $offer['listing']['listingId'] ?? null;
+                    $availableQuantity = $offer['availableQuantity'] ?? 0;
                     if ($listingId) {
+                        // Offer sold out
+                        if ($availableQuantity == 0) {
+                            // End and republish
+                            $this->logger->info("Offer not available anymore, delete and republish offer for listing {$listingId} and item {$scrItem->getId()}");
+                            $this->inventoryApi->deleteOffer($offerId);
+                            $offer = $this->inventoryApi->createAndPublishOffer($offerData);
+                        }
                         // Save/update the eBay item in database
-                        $this->saveEbayItem($scrItem, $listingId, $itemConverter->getQuantity(), $itemConverter->getPrice());
+                        $this->saveEbayItem($scrItem, $listingId, $availableQuantity, $itemConverter->getPrice());
                         $this->logger->info("Found existing active listing {$listingId} for item {$scrItem->getId()}");
                         return $listingId;
                     } else {
@@ -154,10 +163,10 @@ class EbayInventoryService
                 $this->logger->warning("Skipping update for item {$scrItem->getId()} - no images found");
                 return null;
             }
-            
+
             // Convert to inventory item format
             $inventoryItemData = $itemConverter->createInventoryItem();
-            
+
             // Get the offer ID
             $offerResponse = $this->inventoryApi->getOffers($scrItem->getId());
             
@@ -169,10 +178,32 @@ class EbayInventoryService
             $offer = $offerResponse['offers'][0];
             $offerId = $offer['offerId'];
 
-
             // Update offer data
             $offerData = $itemConverter->createOffer();
 
+            // Old offer was not available anymore
+            $listingId = $offer['listing']['listingId'] ?? null;
+            if ($offer['availableQuantity'] == 0) {
+                // End and republish offer
+                $this->logger->info("Offer not available anymore, delete and republish offer for listing {$listingId} and item {$scrItem->getId()}");
+//                $this->inventoryApi->withdrawOffer($offerId);
+//                $offer = $this->inventoryApi->createAndPublishOffer($offerData);
+            }
+            if ($scrItem->getId() == 'EM00083268') {
+                $offerData['availableQuantity'] = 0;
+                //print_r($this->inventoryApi->updateOffer($offerId, $offerData));
+                echo $offerId;
+                print_r($this->inventoryApi->withdrawOffer($offerId));
+                print_r($this->inventoryApi->deleteOffer($offerId));
+                print_r($this->inventoryApi->deleteInventoryItem($scrItem->getId()));
+                //print_r($this->inventoryApi->bulkMigrateListing([357033926266]));
+                print_r($this->inventoryApi->getInventoryItem($scrItem->getId()));
+                print_r($this->inventoryApi->getOffers($scrItem->getId()));
+            }
+//            print_r($this->inventoryApi->deleteOffer($offerId));
+//            $offer = $this->inventoryApi->createOffer($offerData);
+//            $offerId = $offer['offerId'];
+//            $this->inventoryApi->publishOffer($offerId);
             // Log inventory item and offer data at debug level
             $this->logger->debug("Inventory item data: " . json_encode($inventoryItemData, JSON_PRETTY_PRINT));
             $this->logger->debug("Offer data: " . json_encode($offerData, JSON_PRETTY_PRINT));

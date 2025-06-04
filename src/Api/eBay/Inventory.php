@@ -3,6 +3,7 @@
 namespace Four\ScrEbaySync\Api\eBay;
 
 use Monolog\Logger;
+use RuntimeException;
 
 class Inventory extends ApiClient
 {
@@ -26,7 +27,7 @@ class Inventory extends ApiClient
      */
     public function createOrUpdateInventoryItem(string $sku, array $itemData): array
     {
-        return $this->put("/sell/inventory/{$this->apiVersion}/inventory_item/{$sku}", $itemData);
+        return $this->put("/sell/inventory/$this->apiVersion/inventory_item/$sku", $itemData);
     }
 
     /**
@@ -37,7 +38,7 @@ class Inventory extends ApiClient
      */
     public function getInventoryItem(string $sku): array
     {
-        return $this->get("/sell/inventory/{$this->apiVersion}/inventory_item/{$sku}");
+        return $this->get("/sell/inventory/$this->apiVersion/inventory_item/$sku");
     }
 
     /**
@@ -48,7 +49,7 @@ class Inventory extends ApiClient
      */
     public function deleteInventoryItem(string $sku): array
     {
-        return $this->delete("/sell/inventory/{$this->apiVersion}/inventory_item/{$sku}");
+        return $this->delete("/sell/inventory/$this->apiVersion/inventory_item/$sku");
     }
 
     /**
@@ -66,7 +67,7 @@ class Inventory extends ApiClient
             $query['offset'] = $offset;
         }
         
-        return $this->get("/sell/inventory/{$this->apiVersion}/inventory_item", $query);
+        return $this->get("/sell/inventory/$this->apiVersion/inventory_item", $query);
     }
 
     /**
@@ -101,7 +102,7 @@ class Inventory extends ApiClient
      */
     public function createOffer(array $offerData): array
     {
-        return $this->post("/sell/inventory/{$this->apiVersion}/offer", $offerData);
+        return $this->post("/sell/inventory/$this->apiVersion/offer", $offerData);
     }
 
     /**
@@ -113,7 +114,7 @@ class Inventory extends ApiClient
      */
     public function updateOffer(string $offerId, array $offerData): array
     {
-        return $this->put("/sell/inventory/{$this->apiVersion}/offer/{$offerId}", $offerData);
+        return $this->put("/sell/inventory/$this->apiVersion/offer/$offerId", $offerData);
     }
 
     /**
@@ -124,7 +125,7 @@ class Inventory extends ApiClient
      */
     public function getOffer(string $offerId): array
     {
-        return $this->get("/sell/inventory/{$this->apiVersion}/offer/{$offerId}");
+        return $this->get("/sell/inventory/$this->apiVersion/offer/$offerId");
     }
 
     /**
@@ -146,7 +147,7 @@ class Inventory extends ApiClient
             $query['offset'] = $offset;
         }
         
-        return $this->get("/sell/inventory/{$this->apiVersion}/offer", $query);
+        return $this->get("/sell/inventory/$this->apiVersion/offer", $query);
     }
 
     /**
@@ -157,7 +158,7 @@ class Inventory extends ApiClient
      */
     public function deleteOffer(string $offerId): array
     {
-        return $this->delete("/sell/inventory/{$this->apiVersion}/offer/{$offerId}");
+        return $this->delete("/sell/inventory/$this->apiVersion/offer/$offerId");
     }
 
     /**
@@ -168,7 +169,7 @@ class Inventory extends ApiClient
      */
     public function publishOffer(string $offerId): array
     {
-        return $this->post("/sell/inventory/{$this->apiVersion}/offer/{$offerId}/publish", []);
+        return $this->post("/sell/inventory/$this->apiVersion/offer/$offerId/publish");
     }
 
     /**
@@ -179,13 +180,13 @@ class Inventory extends ApiClient
      */
     public function withdrawOffer(string $offerId): array
     {
-        return $this->post("/sell/inventory/{$this->apiVersion}/offer/{$offerId}/withdraw", []);
+        return $this->post("/sell/inventory/$this->apiVersion/offer/$offerId/withdraw");
     }
 
     /**
      * Create an eBay product listing from inventory item
      * 
-     * This is a higher-level helper method that handles both the inventory item and offer creation
+     * This is a higher-level helper method that handles both the inventory item and creation of offers
      *
      * @param string $sku The SKU of the item
      * @param array $inventoryItemData The inventory item data
@@ -197,16 +198,29 @@ class Inventory extends ApiClient
         // Step 1: Create or update the inventory item
         $this->createOrUpdateInventoryItem($sku, $inventoryItemData);
         
-        // Step 2: Create an offer for this inventory item
+        // Step 2: Create and publish an offer for this inventory item
+        return $this->createOffer($offerData);
+    }
+
+
+    /**
+     * Create Offer and Publish
+     * @param array $offerData
+     * @return array
+     */
+    public function createAndPublishOffer(array $offerData): array
+    {
+        // Step 1: Create offer
         $offerResponse = $this->createOffer($offerData);
-        
+
         if (!isset($offerResponse['offerId'])) {
-            throw new \RuntimeException('Failed to create offer: No offer ID returned');
+            throw new RuntimeException('Failed to create offer: No offer ID returned');
         }
-        
-        // Step 3: Publish the offer to create the listing
+
+        // Step 2: Publish the offer
         return $this->publishOffer($offerResponse['offerId']);
     }
+
 
     /**
      * Update an existing listing
@@ -269,7 +283,7 @@ class Inventory extends ApiClient
             'offset' => $offset
         ];
         
-        return $this->get("/sell/inventory/{$this->apiVersion}/inventory_item", $query);
+        return $this->get("/sell/inventory/$this->apiVersion/inventory_item", $query);
     }
 
     /**
@@ -286,7 +300,7 @@ class Inventory extends ApiClient
             }, $listingIds)
         ];
         
-        return $this->post("/sell/inventory/{$this->apiVersion}/bulk_migrate_listing", $data);
+        return $this->post("/sell/inventory/$this->apiVersion/bulk_migrate_listing", $data);
     }
 
     /**
@@ -306,7 +320,7 @@ class Inventory extends ApiClient
         ];
         
         // Get all offers first, then check which are published
-        $offersResponse = $this->get("/sell/inventory/{$this->apiVersion}/inventory_item", $query);
+        $offersResponse = $this->get("/sell/inventory/$this->apiVersion/inventory_item", $query);
         
         $activeListings = [];
         if (isset($offersResponse['offers'])) {
@@ -337,5 +351,40 @@ class Inventory extends ApiClient
         // For now, return empty array - this needs Trading API implementation
         $this->logger->warning('getLegacyListings requires Trading API - returning empty array');
         return [];
+    }
+
+    /**
+     * Delete all location mappings
+     *
+     * @param string $listingId
+     * @param string $sku
+     * @return array
+     */
+    public function deleteSkuLocationMapping(string $listingId, string $sku): array
+    {
+        return $this->delete("/sell/inventory/$this->apiVersion/listing/$listingId/sku/$sku/locations");
+    }
+
+    /**
+     * Get mappings for listing
+     *
+     * @param mixed $listingId
+     * @param string $sku
+     * @return array
+     */
+    public function getSkuLocationMapping(mixed $listingId, string $sku): array
+    {
+        return $this->get("/sell/inventory/$this->apiVersion/listing/$listingId/sku/$sku/locations");
+    }
+
+    /**
+     * Check if item is compatible with inventory item
+     *
+     * @param string $sku
+     * @return array
+     */
+    public function getProductCompatibility(string $sku): array
+    {
+        return $this->get("/sell/inventory/$this->apiVersion/inventory_item/$sku/product_compatibility");
     }
 }

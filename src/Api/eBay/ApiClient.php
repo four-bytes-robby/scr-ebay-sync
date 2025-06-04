@@ -3,8 +3,8 @@
 namespace Four\ScrEbaySync\Api\eBay;
 
 use GuzzleHttp\Client;
-use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Exception\RequestException;
 use Monolog\Logger;
 use RuntimeException;
 
@@ -109,7 +109,7 @@ abstract class ApiClient
             return $data ?: [ 'statusCode' => $response->getStatusCode() ];
         } catch (GuzzleException $e) {
             $response = "";
-            if ($e instanceof ClientException) {
+            if ($e instanceof RequestException) {
                 $response = $e->getResponse()->getBody()->getContents();
             }
             $this->logger->error('API request failed: ' . $e->getMessage(), [

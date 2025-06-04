@@ -110,40 +110,20 @@ class TitleFormatter
      */
     public function getFormat(): string
     {
-        $title = $this->getTitle();
-        
-        // Extract format from common patterns like "(CD)" or "(LP)" or "(Book)"
-        if (preg_match('/\((.*?)\)\s*$/', $title, $matches)) {
-            return trim($matches[1]);
+        $name = $this->getTitle();
+
+        $format = "";
+        $detail = "";
+        if (preg_match('/\(([^)]+)\)$/', $name, $matches)) {
+            $format = mb_convert_case($matches[1], MB_CASE_UPPER);
         }
-        
-        // Default format based on item type or group
-        $groupId = $this->scrItem->getGroupId();
-        
-        if ($this->isBook()) {
-            return 'Book';
+        if (preg_match('/\[([^]]+)]$/m', $name, $matches)) {
+            // Sonderlogik Agrypnie - 16 485
+            if ($matches[1] != '485') {
+                $detail = mb_convert_case($matches[1], MB_CASE_UPPER) . " ";
+            }
         }
-        
-        if ($groupId == 'DVD' || $groupId == 'BD') {
-            return $groupId;
-        }
-        
-        if ($groupId == 'LP' || $groupId == 'SINGLE') {
-            return 'Vinyl';
-        }
-        
-        return 'CD';
-    }
-    
-    /**
-     * Check if the item is a book
-     *
-     * @return bool Whether the item is a book
-     */
-    public function isBook(): bool
-    {
-        $title = $this->getTitle();
-        return strpos($title, 'BOOK)') !== false || $this->scrItem->getGroupId() == 'BOOK';
+        return trim($detail . $format);
     }
 
     /**

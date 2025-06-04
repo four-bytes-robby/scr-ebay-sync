@@ -84,7 +84,7 @@ class ItemConverter
     {
         $offer = [
             'sku' => $this->scrItem->getId(),
-            'marketplaceId' => 'EBAY_DE', // Assuming always German marketplace
+            'marketplaceId' => 'EBAY_DE', // Assuming always the German marketplace
             'format' => 'FIXED_PRICE',
             'availableQuantity' => $this->getQuantity(),
             'categoryId' => (string)$this->categoryResolver->getCategoryId(),
@@ -149,7 +149,6 @@ class ItemConverter
             $aspects['Monat'] = [$months[$date->format('n') - 1]];
             $aspects['Tag'] = [$date->format('j')];
         }
-        
         return $aspects;
     }
     
@@ -172,7 +171,7 @@ class ItemConverter
     }
 
     /**
-     * Get the price with appropriate surcharge
+     * Get the price with the appropriate surcharge
      *
      * @return float The price
      */
@@ -242,9 +241,8 @@ class ItemConverter
      */
     public function isBook(): bool
     {
-        return strpos($this->scrItem->getName(), 'BOOK)') !== false || 
-               $this->scrItem->getGroupId() == 'BOOK' ||
-               $this->titleFormatter->getFormat() == 'Book';
+        return strtolower($this->scrItem->getGroupId()) == 'books' ||
+               $this->titleFormatter->getFormat() == 'BOOK';
     }
     
     /**
@@ -261,7 +259,7 @@ class ItemConverter
         
         // Take numeric characters from item ID and pad
         $numericId = preg_replace('/[^0-9]/', '', $itemId);
-        $numericId = str_pad($numericId, 11, '0', STR_PAD_RIGHT);
+        $numericId = str_pad($numericId, 11, '0');
         $ean .= substr($numericId, 0, 11);
         
         // Calculate checksum
@@ -377,7 +375,7 @@ class ItemConverter
     private function getFormat(string $name) : string {
         $format = "";
         $detail = "";
-        if (preg_match("/\(([^)]+)\)$/s", $name, $matches)) {
+        if (preg_match("/\(([^)]+)\)$/", $name, $matches)) {
             $format = mb_convert_case($matches[1], MB_CASE_UPPER);
         }
         if (preg_match("/\[([^]]+)]$/m", $name, $matches)) {
