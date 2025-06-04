@@ -2,6 +2,7 @@
 // src/Services/EbayOrderService.php
 namespace Four\ScrEbaySync\Services;
 
+use DateTime;
 use Four\ScrEbaySync\Api\eBay\Fulfillment;
 use Four\ScrEbaySync\Services\EbayOrder\OrderImportService;
 use Four\ScrEbaySync\Services\EbayOrder\OrderStatusService;
@@ -37,10 +38,10 @@ class EbayOrderService
     /**
      * Import orders from eBay
      *
-     * @param \DateTime $fromDate Import orders from this date
+     * @param DateTime $fromDate Import orders from this date
      * @return int Number of imported orders
      */
-    public function importOrders(\DateTime $fromDate): int
+    public function importOrders(DateTime $fromDate): int
     {
         return $this->importService->importOrders($fromDate);
     }
@@ -54,18 +55,19 @@ class EbayOrderService
     {
         return $this->statusService->updateOrderStatus();
     }
-    
+
     /**
      * Run the complete order sync process
      *
      * @param int $daysBack Number of days to look back for orders
      * @return array Results with counts
+     * @throws \DateMalformedStringException
      */
     public function syncOrders(int $daysBack = 10): array
     {
         $this->logger->info("Starting eBay order sync process, looking back {$daysBack} days");
         
-        $fromDate = new \DateTime();
+        $fromDate = new DateTime();
         $fromDate->modify("-{$daysBack} days");
         
         // Step 1: Import new orders

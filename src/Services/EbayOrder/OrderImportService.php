@@ -2,9 +2,9 @@
 // src/Services/EbayOrder/OrderImportService.php
 namespace Four\ScrEbaySync\Services\EbayOrder;
 
+use DateTime;
 use Four\ScrEbaySync\Api\eBay\Fulfillment;
 use Four\ScrEbaySync\Entity\ScrInvoice;
-use Four\ScrEbaySync\Entity\ScrCustomer;
 use Doctrine\ORM\EntityManagerInterface;
 use Monolog\Logger;
 
@@ -45,10 +45,10 @@ class OrderImportService
     /**
      * Import orders from eBay
      *
-     * @param \DateTime $fromDate Import orders from this date
+     * @param DateTime $fromDate Import orders from this date
      * @return int Number of imported orders
      */
-    public function importOrders(\DateTime $fromDate): int
+    public function importOrders(DateTime $fromDate): int
     {
         $this->logger->info("Importing eBay orders from {$fromDate->format('Y-m-d H:i:s')}");
         
@@ -56,7 +56,7 @@ class OrderImportService
             // Get orders from eBay
             $orders = $this->fulfillmentApi->getOrdersByCreationDate($fromDate);
             
-            if (!isset($orders['orders']) || empty($orders['orders'])) {
+            if (!$orders['orders']) {
                 $this->logger->info("No new orders found");
                 return 0;
             }
@@ -71,7 +71,7 @@ class OrderImportService
 
             // Get already imported order IDs
             $importedOrderIds = $this->getImportedOrderIds($fromDate);
-            
+
             // Process each order
             $importCount = 0;
             foreach ($openOrders as $order) {
@@ -103,7 +103,7 @@ class OrderImportService
      */
     private function importBuyerOrder(array $order): bool
     {
-        $this->logger->debug("Importing order {$order['orderId']}");
+        $this->logger->debug("Importing order {$order['orderId']}", $order);
         
         try {
             // Get detailed order info if needed
@@ -154,10 +154,10 @@ class OrderImportService
     /**
      * Get already imported order IDs
      *
-     * @param \DateTime $fromDate From date
+     * @param DateTime $fromDate From date
      * @return array Order IDs
      */
-    private function getImportedOrderIds(\DateTime $fromDate): array
+    private function getImportedOrderIds(DateTime $fromDate): array
     {
         $qb = $this->entityManager->createQueryBuilder();
         $result = $qb->select('i.source_id')

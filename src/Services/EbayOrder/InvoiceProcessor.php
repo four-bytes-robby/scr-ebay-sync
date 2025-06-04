@@ -47,18 +47,18 @@ class InvoiceProcessor
     public function createInvoice(array $order, ScrCustomer $customer): ScrInvoice
     {
         $invoice = new ScrInvoice();
-        
+
         // Set invoice number based on year + sequence
         $year = new DateTime()->format('Y');
         $nextId = $this->getNextInvoiceId($year);
         $invoice->setId($nextId);
-        
+
         // Basic fields
         $invoice->setCustomerId($customer->getId());
         $invoice->setSeller('SCR');
         $invoice->setInvoiceno('');
         $invoice->setLexofficeId('');
-        
+
         // Dates
         $receivedat = new DateTime($order['creationDate']);
         $invoice->setReceivedat($receivedat);
@@ -68,63 +68,65 @@ class InvoiceProcessor
             $paydat = new DateTime($order['paymentSummary']['payments'][0]['paymentDate']);
         }
         $invoice->setPaydat($paydat);
-        
+
         // Payment method
         $invoice->setPaymethod('ebay');
         $invoice->setPaymentId($order['orderId']);
-        
+
         // Comments
         $isGerman = in_array($customer->getCountry(), ['DEU', 'AUT', 'CHE']);
-        
+
         if ($isGerman) {
             $comment = $this->germanInfoTemplate;
         } else {
             $comment = $this->englishInfoTemplate;
         }
-        
+
         $comment = str_replace('{UserName}', $order['buyer']['username'], $comment);
         $comment = str_replace('{OrderId}', $order['orderId'], $comment);
         $invoice->setComment($comment);
-        
+
         // Standard info text
         $standardInfo = $this->entityManager->getRepository(ScrTexte::class)
             ->findOneBy(['varName' => 'StandardInfodeutsch']);
-        
+
         $invoice->setInfo($standardInfo ? $standardInfo->getTxtText() : '');
-        
+
         // Buyer message
         $important = '';
         if (!empty($order['buyerCheckoutNotes'])) {
             $important = $this->shortenString($order['buyerCheckoutNotes'], 250, '[.. > ebay]');
         }
         $invoice->setImportant($important);
-        
+
         // Shipping info
         $invoice->setTracking('');
         $invoice->setShipper('');
-        
+
         // eBay info
         $invoice->setEbayId(0);
         $invoice->setEbayIdSandbox(0);
         $invoice->setSource('ebay');
         $invoice->setSourceId($order['orderId']);
         $invoice->setSourceUser($order['buyer']['username']);
-        
+
         // Status fields
         $invoice->setClosed(0);
         $invoice->setProcessing(0);
         $invoice->setConfirmationsent(0);
         $invoice->setSevdeskid(0);
         $invoice->setDealervat(0);
-        
-        // Calculate international fees
-        $paymentFee = 0.35; // Standard fee for fixed price listings
-        
-        // Calculate total value for percentage fees
-        $totalWithTaxes = (float)$order['pricingSummary']['total']['value'];
-        
-        // Add additional international fees
-        $paymentFee += $this->calculateInternationalFees($customer->getCountry(), $totalWithTaxes);
+
+
+        // Real total fee
+        if ($order['totalMarketplaceFee']['value']) {
+            $paymentFee = (float)$order['totalMarketplaceFee']['value'];
+        } else {
+            // Calculate total value for percentage fees
+            $totalWithTaxes = (float)$order['pricingSummary']['total']['value'];
+            // Calculate Fees
+            $paymentFee = $this->calculateFees($customer->getCountry(), $totalWithTaxes);
+        }
         $invoice->setPaymentfee($paymentFee);
         
         // Shipping costs
@@ -133,7 +135,7 @@ class InvoiceProcessor
             $shippingCost += (float)$order['pricingSummary']['deliveryCost']['value'];
         }
         if (isset($order['pricingSummary']['deliveryDiscount']['value'])) {
-            $shippingCost -= (float)$order['pricingSummary']['deliveryDiscount']['value'];
+            $shippingCost += (float)$order['pricingSummary']['deliveryDiscount']['value'];
         }
         $invoice->setPostage($shippingCost);
 
@@ -172,46 +174,56 @@ class InvoiceProcessor
     }
     
     /**
-     * Calculate international fees
+     * Fallback - calculate fees
      *
      * @param string $countryCode ISO3 country code
      * @param float $totalWithTaxes Total order value
      * @return float Fee amount
      */
-    private function calculateInternationalFees(string $countryCode, float $totalWithTaxes): float
+    private function calculateFees(string $countryCode, float $totalWithTaxes): float
     {
-        // Convert ISO3 to ISO2
+        $fees = 0.50; // Base fixed price listing
+        $fees += $totalWithTaxes * 0.11; // 11% for media
+
+        // Get country
         $country = $this->entityManager->getRepository(ScrCountry::class)
             ->findOneBy(['ISO3' => $countryCode]);
-            
         if (!$country) {
-            return 0;
+            // Fallback to Germany
+            $country = $this->entityManager->getRepository(ScrCountry::class)
+                ->findOneBy(['ISO3' => 'DEU']);
         }
-        
-        $countryCode = $country->getISO2();
         
         // Eurozone countries
-        $eurozoneCountryCodes = ['AT', 'BE', 'DE', 'EE', 'FI', 'FR', 'GR', 'IE', 'IT', 'HR', 'LU', 'LV', 'LT', 'MT', 'NL', 'PT', 'SK', 'SI', 'ES', 'CY'];
-        
-        // Eurozone and Sweden - no fee
-        if (in_array($countryCode, $eurozoneCountryCodes) || $countryCode === 'SE') {
-            return 0;
+        // $eurozoneCountryCodes = ['AT', 'BE', 'DE', 'EE', 'FI', 'FR', 'GR', 'IE', 'IT', 'HR', 'LU', 'LV', 'LT', 'MT', 'NL', 'PT', 'SE', 'SK', 'SI', 'ES', 'CY'];
+
+
+        // Eurozone 0% payment fees
+        $internationalFeesPercent = 0.0;
+
+        // Non-EU
+        if ($country->getRegion() == 'World') {
+            // All others 3.3%
+            $internationalFeesPercent = 3.3;
+
+            // UK - 1.2%
+            if ($country->getISO2() === 'GB') {
+                $internationalFeesPercent = 1.2;
+            }
+
+            // Europe (except Eurozone, Sweden, UK), USA and Canada - 1.6%
+            $europeCountryCodes = ['AL', 'AD', 'AZ', 'BA', 'BG', 'DK', 'FO', 'GE', 'IS', 'KZ', 'LI', 'MC', 'MD', 'ME', 'MK', 'NO', 'PL', 'RO', 'RU', 'SM', 'CH', 'RS', 'SJ', 'CZ', 'TR', 'HU', 'UA', 'VA', 'BY'];
+            $europeUSCACountryCodes = array_merge($europeCountryCodes, [ 'US', 'CA' ]);
+            if (in_array($country->getISO2(), $europeCountryCodes)) {
+                $internationalFeesPercent = 1.6;
+            }
+
+            // Add international fees
+            $fees = $totalWithTaxes * $internationalFeesPercent / 100;
         }
-        
-        // UK - 1.2%
-        if ($countryCode === 'GB') {
-            return 0.012 * $totalWithTaxes;
-        }
-        
-        // Europe (except Eurozone, Sweden, UK), USA and Canada - 1.6%
-        $europeCountryCodes = ['AL', 'AD', 'AZ', 'BA', 'BG', 'DK', 'FO', 'GE', 'IS', 'KZ', 'LI', 'MC', 'MD', 'ME', 'MK', 'NO', 'PL', 'RO', 'RU', 'SM', 'CH', 'RS', 'SJ', 'CZ', 'TR', 'HU', 'UA', 'VA', 'BY'];
-        
-        if (in_array($countryCode, $europeCountryCodes) || $countryCode === 'US' || $countryCode === 'CA') {
-            return 0.016 * $totalWithTaxes;
-        }
-        
-        // All others - 3.3%
-        return 0.033 * $totalWithTaxes;
+
+        // Return total fees
+        return $fees;
     }
     
     /**
