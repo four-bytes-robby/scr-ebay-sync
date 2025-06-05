@@ -276,9 +276,11 @@ class ItemConverter
      * @return bool
      */
     function isBigItem() : bool {
-        return $this->getPosWeightClass(
+        $weightClass = $this->getPosWeightClass(
             $this->scrItem->getName(),
-            $this->scrItem->getGroupId()) != "small";
+            $this->scrItem->getGroupId());
+        $groupRegistered = preg_match('/vinyl/i', $this->scrItem->getGroupId());
+        return $weightClass != "small" || $groupRegistered;
     }
 
     /**
